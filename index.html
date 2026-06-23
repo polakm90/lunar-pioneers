@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Lunar Pioneers — Escape the Night</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+    </style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script>
+const W = 1024, H = 600;
+const TILE = 48;
+const COLS = 900;
+const ROWS = 11;
+const OY = Math.floor((H - ROWS * TILE) / 2); // vertical offset to center grid
+
+const T_EMPTY  = 0;
+const T_ROAD   = 1;
+const T_CRATER = 2;
+const T_BOULDER = 3;
+
+// ════════════════════════════════════════════════════════════
+//  MENU
+// ════════════════════════════════════════════════════════════
+class MenuScene extends Phaser.Scene {
+    constructor() { super('Menu'); }
+    create() {
+        const g = this.add.graphics();
+        g.fillStyle(0x000010, 1); g.fillRect(0, 0, W, H);
+
+        // fake top-down surface preview
+        for (let c = 0; c < Math.ceil(W / TILE) + 1; c++) {
+            for (let r = 0; r < ROWS; r++) {
+                const v = 0x36 + ((c * 7 + r * 11) % 12);
+                g.fillStyle((v << 16) | (v << 8) | (v + 8), 1);
+                g.fillRect(c * TILE, OY + r * TILE, TILE - 1, TILE - 1);
+            }
+        }
+        [[1,2],[4,7],[8,3],[14,8],[17,4],[11,1],[6,9]].forEach(([c,r]) => {
+            g.fillStyle(0x1a1a28, 1);
+            g.fillEllipse(c*TILE+TILE/2, OY+r*TILE+TILE/2, TILE*0.82, TILE*0.82);
+        });
+        // fake road strip
+        for (let c = 0; c < 22; c++) {
+            g.fillStyle(0x686878, 1);
+            g.fillRect(c*TILE, OY+5*TILE, TILE-1, TILE-1);
+            g.fillRect(c*TILE, OY+4*TILE, TILE-1, TILE-1);
+        }
+        g.fillStyle(0x000010, 0.68); g.fillRect(0, 0, W, H);
+
+        this.add.text(W/2, 110, 'LUNAR PIONEERS', {
+            fontSize: '54px', fontFamily: 'monospace',
+            color: '#e8e8ff', stroke: '#2255bb', strokeThickness: 5
+        }).setOrigin(0.5);
+        this.add.text(W/2, 178, 'ESCAPE THE NIGHT', {
+            fontSize: '23px', fontFamily: 'monospace', color: '#6688ee'
+        }).setOrigin(0.5);
+
+        g.fillStyle(0x00001a, 0.80);
+        g.lineStyle(1, 0x334466, 0.7);
+        g.fillRect(160, 228, 704, 210);
+        g.strokeRect(160, 228, 704, 210);
+
+        [
+            ['🌑', 'Księżycowa noc nadciąga z lewej — pochłonie Twój habitat'],
+            ['🛣️', 'Kliknij teren PRZED habitatem aby zbudować drogę (za darmo!)'],
+            ['🔋', 'Baterie +25% moc  |  Klucze naprawcze +25% kadłub  (B / R)'],
+            ['🚀', 'W/S/A/D=jazda  SPACJA=turbo (spala paliwo+O₂)  F=światła'],
+            ['🕳️', 'Kratery są nieprzejezdne — buduj drogę dookoła nich'],
+        ].forEach(([icon, txt], i) => {
+            this.add.text(190, 248 + i * 36, `${icon}  ${txt}`, {
+                fontSize: '14px', fontFamily: 'monospace', color: '#aaaacc'
+            });
+        });
+
+        const btn = this.add.text(W/2, 480, '[ ROZPOCZNIJ MISJĘ ]', {
+            fontSize: '28px', fontFamily: 'monospace',
+            color: '#ffff44', stroke: '#888800', strokeThickness: 2
+        }).setOrigin(0.5);
+        this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.35 }, duration: 700, yoyo: true, repeat: -1 });
+        this.input.once('pointerdown', () => this.scene.start('Game'));
+        this.input.keyboard.once('keydown', () => this.scene.start('Game'));
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+//  GAME OVER
+// ════════════════════════════════════════════════════════════
+class GameOverScene extends Phaser.Scene {
+    constructor() { super('GameOver'); }
+    create(data) {
+        const d = data || {};
+        const cause = d.cause || 'power';
+        const cfg = {
+            oxygen: { bg: 0x000818, glow: 0x001830, title: 'BRAK TLENU',           color: '#44aaff', stroke: '#001840', sub: 'Systemy podtrzymania życia zakończyły pracę.' },
+            hull:   { bg: 0x100800, glow: 0x281000, title: 'ZNISZCZENIE KADŁUBA',  color: '#ff8833', stroke: '#441100', sub: 'Pojazd rozbił się o księżycowe głazy.' },
+            power:  { bg: 0x040004, glow: 0x200000, title: 'UTRATA ZASILANIA',     color: '#ff3333', stroke: '#550000', sub: 'Księżycowa noc pochłonęła Twój habitat.' },
+        }[cause] || cfg.power;
+        const g = this.add.graphics();
+        g.fillStyle(cfg.bg, 1); g.fillRect(0, 0, W, H);
+        g.fillStyle(cfg.glow, 0.55); g.fillCircle(W/2, H/2, 380);
+        this.add.text(W/2, 140, cfg.title, {
+            fontSize: '54px', fontFamily: 'monospace',
+            color: cfg.color, stroke: cfg.stroke, strokeThickness: 4
+        }).setOrigin(0.5);
+        this.add.text(W/2, 215, cfg.sub, {
+            fontSize: '18px', fontFamily: 'monospace', color: '#999999'
+        }).setOrigin(0.5);
+        g.fillStyle(0x0a0010, 0.88); g.lineStyle(1, 0x333355, 1);
+        g.fillRect(W/2 - 235, 260, 470, 135); g.strokeRect(W/2 - 235, 260, 470, 135);
+        [
+            [`Pokonana odległość: ${d.distance || 0} m`,     '#ffdd44', 292],
+            [`Zbudowane odcinki drogi: ${d.roadBuilt || 0}`, '#88ffaa', 327],
+            [`Prędkość nocy na końcu: ${d.nightSpeed || 36} m/s`, '#ff8844', 362],
+        ].forEach(([t, c, y]) => {
+            this.add.text(W/2, y, t, { fontSize: '19px', fontFamily: 'monospace', color: c }).setOrigin(0.5);
+        });
+        const btn = this.add.text(W/2, 455, '[ SPRÓBUJ PONOWNIE ]', {
+            fontSize: '26px', fontFamily: 'monospace', color: '#ffff44'
+        }).setOrigin(0.5);
+        this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.3 }, duration: 700, yoyo: true, repeat: -1 });
+        this.input.once('pointerdown', () => this.scene.start('Game'));
+        this.input.keyboard.once('keydown', () => this.scene.start('Game'));
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+//  GAME
+// ════════════════════════════════════════════════════════════
+class GameScene extends Phaser.Scene {
+    constructor() { super('Game'); }
+
+    create() {
+        this.power      = 100;
+        this.oxygen     = 100;
+        this.hull       = 100;
+        this.fuel       = 100;
+        this.demolishCounts     = {};
+        this.o2Failure          = false;
+        this.driveFailure       = false;
+        this.driveFailTimer     = 0;
+        this.driveFailCooldown  = 45 + Math.random() * 45; // first failure 45-90 s
+        this.o2FailTimer        = 0;
+        this.o2FailCooldown     = 35 + Math.random() * 40;
+        this.solarFailure       = false;
+        this.solarFailTimer     = 0;
+        this.solarFailCooldown  = 50 + Math.random() * 50; // first failure 50-100 s
+        this.batteriesCollected  = 0;
+        this.repairKitsCollected = 0;
+        this.roadBuilt  = 0;
+        this.nightWorldX = -264; // habX (216) - 480 initial gap
+        this.nightSpeed  = 26;
+        this.gameTime    = 0;
+        this.previewTile = null;
+        this.trail       = [];
+        this.trailTimer  = 0;
+        this.turboActive = false;
+        this.lightsOn    = false;
+        this.meteorCooldown  = 3 + Math.random() * 4; // first impact 3-7 s
+        this.meteorFlashes   = []; // { c, r, life }
+        this.incomingMeteors = []; // { c, r, timer, dur, ox, oy } — in-flight
+        this.dustClouds      = []; // { wx, wy, life, maxLife }
+        this.habVX       = 0;
+        this.habAngle    = 0; // radians, 0 = facing right
+
+        // ── Grid ──────────────────────────────────────────────
+        this.grid = Array.from({ length: COLS }, () => new Array(ROWS).fill(T_EMPTY));
+        for (let c = 0; c < 9; c++)
+            for (let r = 0; r < ROWS; r++) this.grid[c][r] = T_ROAD;
+
+        this.generateObstacles();
+
+        // ── Pickups ───────────────────────────────────────────
+        this.pickups = [];
+        for (let c = 11; c < COLS - 5; c += 8 + Math.floor(Math.random() * 6)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.pickups.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Repair kits ───────────────────────────────────────
+        this.repairKits = [];
+        for (let c = 20; c < COLS - 5; c += 18 + Math.floor(Math.random() * 14)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.repairKits.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Fuel canisters ────────────────────────────────────
+        this.fuelCanisters = [];
+        for (let c = 14; c < COLS - 5; c += 12 + Math.floor(Math.random() * 8)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.fuelCanisters.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Habitat ───────────────────────────────────────────
+        this.habX   = 4 * TILE + TILE / 2;
+        this.habY   = OY + 5 * TILE + TILE / 2;
+        this.startX = this.habX;
+
+        // ── Camera ────────────────────────────────────────────
+        this.cameras.main.setBounds(0, 0, COLS * TILE, H);
+        this.cameras.main.scrollX = this.habX - W / 3;
+
+        // ── Layers ────────────────────────────────────────────
+        // background
+        const bg = this.add.graphics().setDepth(0);
+        bg.fillStyle(0x000010, 1); bg.fillRect(0, 0, COLS * TILE, H);
+        // border areas (space above/below the tile grid)
+        bg.fillStyle(0x000008, 1);
+        bg.fillRect(0, 0, COLS * TILE, OY);
+        bg.fillRect(0, OY + ROWS * TILE, COLS * TILE, H - OY - ROWS * TILE);
+
+        const starG = this.add.graphics().setDepth(0);
+        for (let i = 0; i < 200; i++) {
+            const sx = Math.random() * COLS * TILE;
+            const inTop = Math.random() < 0.5;
+            const sy = inTop ? Math.random() * OY : OY + ROWS * TILE + Math.random() * (H - OY - ROWS * TILE);
+            starG.fillStyle(0xffffff, Math.random() * 0.55 + 0.15);
+            starG.fillRect(sx, sy, 1, 1);
+        }
+
+        this.terrainGfx = this.add.graphics().setDepth(1);
+        this.pickupGfx  = this.add.graphics().setDepth(2);
+        this.trailGfx   = this.add.graphics().setDepth(2);
+        this.habitatGfx = this.add.graphics().setDepth(3);
+        this.previewGfx = this.add.graphics().setScrollFactor(0).setDepth(5);
+        this.nightGfx   = this.add.graphics().setScrollFactor(0).setDepth(10);
+        this.lightGfx   = this.add.graphics().setScrollFactor(0).setDepth(12);
+        this.uiGfx      = this.add.graphics().setScrollFactor(0).setDepth(20);
+
+        // ── UI text ───────────────────────────────────────────
+        const ts = { fontSize: '15px', fontFamily: 'monospace', color: '#ddddff' };
+        this.powerTxt = this.add.text(24, 18, '', ts).setScrollFactor(0).setDepth(21);
+        this.resTxt   = this.add.text(24, 42, '', { ...ts, color: '#ffee44' }).setScrollFactor(0).setDepth(21);
+        this.distTxt  = this.add.text(W-24, 18, '', { ...ts, color: '#88ffbb', align: 'right' })
+                            .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
+        this.nightTxt = this.add.text(W-24, 42, '', { ...ts, color: '#ff8844', align: 'right' })
+                            .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
+        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SPC=turbo(paliwo+O₂)  F=światła  B=bateria→moc  R=klucz→kadłub', {
+            fontSize: '13px', fontFamily: 'monospace', color: '#4444aa'
+        }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(21);
+        this.warnTxt  = this.add.text(W/2, 86, '', {
+            fontSize: '20px', fontFamily: 'monospace',
+            color: '#ff5533', stroke: '#000000', strokeThickness: 3
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(22);
+        this.oxygenTxt = this.add.text(24, 102, '', {
+            fontSize: '12px', fontFamily: 'monospace', color: '#66ccff'
+        }).setScrollFactor(0).setDepth(21);
+        this.hullTxt = this.add.text(24, 120, '', {
+            fontSize: '12px', fontFamily: 'monospace', color: '#ffaa44'
+        }).setScrollFactor(0).setDepth(21);
+
+        this.input.on('pointerdown', this.onPointerDown, this);
+        this.input.on('pointermove', this.onPointerMove, this);
+        const KC = Phaser.Input.Keyboard.KeyCodes;
+        this.turboKey = this.input.keyboard.addKey(KC.SPACE);
+        this.wKey = this.input.keyboard.addKey(KC.W);
+        this.sKey = this.input.keyboard.addKey(KC.S);
+        this.aKey = this.input.keyboard.addKey(KC.A);
+        this.dKey = this.input.keyboard.addKey(KC.D);
+        this.fKey = this.input.keyboard.addKey(KC.F);
+        this.bKey = this.input.keyboard.addKey(KC.B);
+        this.rKey = this.input.keyboard.addKey(KC.R);
+    }
+
+    // ── Obstacle generation ───────────────────────────────────
+    generateObstacles() {
+        let wallCooldown = 0;
+        let largeCraterCooldown = 0;
+
+        for (let c = 12; c < COLS - 4; c++) {
+            wallCooldown--;
+            largeCraterCooldown--;
+
+            // Periodic wall with gap
+            if (wallCooldown <= 0 && c > 25) {
+                wallCooldown = 28 + Math.floor(Math.random() * 22);
+                const gapStart = 1 + Math.floor(Math.random() * (ROWS - 4));
+                const gapSize  = 2 + Math.floor(Math.random() * 2);
+                for (let r = 0; r < ROWS; r++) {
+                    if (r < gapStart || r >= gapStart + gapSize) {
+                        this.grid[c][r] = T_CRATER;
+                        if (c + 1 < COLS) this.grid[c+1][r] = T_CRATER;
+                    }
+                }
+                continue;
+            }
+
+            // Large crater (oval, 2-4 wide × 2-5 tall)
+            if (largeCraterCooldown <= 0 && Math.random() < 0.12) {
+                largeCraterCooldown = 12 + Math.floor(Math.random() * 10);
+                const cr = Math.floor(Math.random() * ROWS);
+                const cw = 2 + Math.floor(Math.random() * 3);
+                const ch = 2 + Math.floor(Math.random() * 4);
+                for (let dc = 0; dc < cw; dc++) {
+                    for (let dr = 0; dr < ch; dr++) {
+                        const tc = c + dc, tr = cr + dr;
+                        if (tc < COLS && tr >= 0 && tr < ROWS)
+                            this.grid[tc][tr] = T_CRATER;
+                    }
+                }
+            }
+
+            // Small craters
+            const density = 0.06 + (c / COLS) * 0.08;
+            if (Math.random() < density) {
+                const r = Math.floor(Math.random() * ROWS);
+                const size = 1 + Math.floor(Math.random() * 2);
+                for (let dr = 0; dr < size; dr++) {
+                    const tr = r + dr;
+                    if (tr >= 0 && tr < ROWS) this.grid[c][tr] = T_CRATER;
+                }
+            }
+
+            // Boulders — single rocks and small clusters
+            if (this.grid[c].every(t => t !== T_CRATER) && Math.random() < 0.09) {
+                const r = Math.floor(Math.random() * ROWS);
+                this.grid[c][r] = T_BOULDER;
+                if (Math.random() < 0.45 && r + 1 < ROWS)
+                    this.grid[c][r + 1] = T_BOULDER;
+            }
+
+            // Safety: min 3 passable tiles per column
+            const passable = this.grid[c].filter(t => t === T_EMPTY || t === T_ROAD).length;
+            if (passable < 3) {
+                const mid = Math.floor(ROWS / 2);
+                this.grid[c][mid]   = T_EMPTY;
+                this.grid[c][mid-1] = T_EMPTY;
+                this.grid[c][mid+1] = T_EMPTY;
+            }
+        }
+    }
+
+    isPassable(c, r) {
+        if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+        const t = this.grid[c][r];
+        return t !== T_CRATER && t !== T_BOULDER;
+    }
+
+    isBoulder(c, r) {
+        if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+        return this.grid[c][r] === T_BOULDER;
+    }
+
+    // ── Terrain drawing ───────────────────────────────────────
+    redrawTerrain() {
+        const g = this.terrainGfx; g.clear();
+        const camL  = this.cameras.main.scrollX;
+        const cS = Math.max(0, Math.floor(camL / TILE) - 1);
+        const cE = Math.min(COLS - 1, Math.ceil((camL + W) / TILE) + 1);
+
+        for (let c = cS; c <= cE; c++) {
+            for (let r = 0; r < ROWS; r++) {
+                const x = c * TILE, y = OY + r * TILE;
+                const t = this.grid[c][r];
+
+                if (t === T_CRATER) {
+                    g.fillStyle(0x222230, 1); g.fillRect(x, y, TILE, TILE);
+                    g.fillStyle(0x16161f, 1); g.fillEllipse(x+TILE/2, y+TILE/2, TILE*0.84, TILE*0.84);
+                    g.lineStyle(1, 0x2e2e40, 0.8); g.strokeEllipse(x+TILE/2, y+TILE/2, TILE*0.96, TILE*0.96);
+                    g.lineStyle(1, 0x484862, 0.4); g.strokeEllipse(x+TILE/2-2, y+TILE/2-2, TILE*0.78, TILE*0.72);
+                } else if (t === T_ROAD) {
+                    g.fillStyle(0x686878, 1); g.fillRect(x, y, TILE, TILE);
+                    if (c % 4 === 0) {
+                        g.fillStyle(0xccccaa, 0.32);
+                        g.fillRect(x+TILE/2-4, y+6, 8, 8);
+                        g.fillRect(x+TILE/2-4, y+TILE-14, 8, 8);
+                    }
+                    g.lineStyle(1, 0x555565, 0.28); g.strokeRect(x, y, TILE, TILE);
+                } else if (t === T_BOULDER) {
+                    // base regolith
+                    const v = 0x36 + ((c*5 + r*9) % 14);
+                    g.fillStyle((v<<16)|(v<<8)|(v+8), 1); g.fillRect(x, y, TILE, TILE);
+                    // rock body
+                    g.fillStyle(0x887766, 1);
+                    g.fillRect(x+5, y+6, TILE-10, TILE-11);
+                    // highlight (top-left)
+                    g.fillStyle(0xbbaa99, 0.85);
+                    g.fillTriangle(x+5, y+6, x+TILE-5, y+6, x+5, y+TILE-5);
+                    // shadow (bottom-right)
+                    g.fillStyle(0x443322, 0.80);
+                    g.fillTriangle(x+TILE-5, y+6, x+TILE-5, y+TILE-5, x+5, y+TILE-5);
+                    // top face (center flat)
+                    g.fillStyle(0x998877, 1);
+                    g.fillRect(x+9, y+10, TILE-18, TILE-20);
+                    // surface cracks
+                    g.lineStyle(1, 0x554433, 0.6);
+                    g.lineBetween(x+11, y+12, x+TILE/2, y+TILE-14);
+                    g.lineBetween(x+TILE/2, y+12, x+TILE-12, y+TILE-14);
+                    // edge outline
+                    g.lineStyle(1, 0x332211, 0.9); g.strokeRect(x+5, y+6, TILE-10, TILE-11);
+                } else {
+                    const v = 0x36 + ((c*5 + r*9) % 14);
+                    g.fillStyle((v<<16)|(v<<8)|(v+8), 1); g.fillRect(x, y, TILE, TILE);
+                    if ((c*3 + r*7) % 6 === 0) {
+                        g.fillStyle(0x444454, 0.55);
+                        g.fillRect(x + (c*11)%38+5, y + (r*13)%38+5, 3, 3);
+                    }
+                    g.lineStyle(1, 0x2e2e3e, 0.22); g.strokeRect(x, y, TILE, TILE);
+                }
+
+                // Demolish progress overlay
+                const dmKey = `${c}_${r}`;
+                const dmCnt = this.demolishCounts[dmKey];
+                if (dmCnt) {
+                    const frac = dmCnt / 15;
+                    g.fillStyle(0xff6600, frac * 0.35); g.fillRect(x, y, TILE, TILE);
+                    g.fillStyle(0x220000, 0.75); g.fillRect(x + 3, y + TILE - 9, TILE - 6, 6);
+                    g.fillStyle(0xff7700, 0.95); g.fillRect(x + 3, y + TILE - 9, Math.round((TILE - 6) * frac), 6);
+                    g.lineStyle(1, 0xff4400, 0.6); g.strokeRect(x + 3, y + TILE - 9, TILE - 6, 6);
+                }
+            }
+        }
+    }
+
+    // ── Pickups drawing (batteries + repair kits) ────────────
+    redrawPickups() {
+        const g = this.pickupGfx; g.clear();
+        const camL = this.cameras.main.scrollX;
+
+        // Batteries
+        for (const p of this.pickups) {
+            if (p.collected) continue;
+            const wx = p.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + p.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 3 + p.c) * 0.3 + 0.7;
+
+            g.fillStyle(0xffee00, 0.1 * pulse); g.fillCircle(wx, wy, 20);
+            g.fillStyle(0x333300, 1); g.fillRect(wx - 12, wy - 7, 24, 14);
+            g.fillStyle(0xaaff00, 1); g.fillRect(wx - 10, wy - 5, 18, 10);
+            g.fillStyle(0xeeff88, 0.7); g.fillRect(wx - 10, wy - 5, 18, 4);
+            g.fillStyle(0x555500, 1); g.fillRect(wx + 12, wy - 3, 4, 6);
+            g.lineStyle(1, 0xffff44, 0.8); g.strokeRect(wx - 12, wy - 7, 24, 14);
+            if (pulse > 0.95) { g.fillStyle(0xffffff, 0.5); g.fillRect(wx - 10, wy - 5, 4, 10); }
+        }
+
+        // Repair kits (wrench icon, cyan tint)
+        for (const k of this.repairKits) {
+            if (k.collected) continue;
+            const wx = k.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + k.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 2.5 + k.c * 0.7) * 0.3 + 0.7;
+
+            // Glow
+            g.fillStyle(0x00ffcc, 0.12 * pulse); g.fillCircle(wx, wy, 22);
+
+            // Wrench handle (top-down: angled bar)
+            g.fillStyle(0x224444, 1);
+            g.fillRect(wx - 10, wy - 3, 20, 6); // main shaft
+            g.fillRect(wx - 3, wy - 10, 6, 20); // cross shaft (cross shape)
+
+            // Metal sheen
+            g.fillStyle(0x44ddcc, 1);
+            g.fillRect(wx - 8, wy - 2, 16, 4);
+            g.fillRect(wx - 2, wy - 8, 4, 16);
+
+            // Head circles (ends of wrench)
+            g.fillStyle(0x00bbaa, 1); g.fillCircle(wx + 9, wy, 5);
+            g.fillStyle(0x00bbaa, 1); g.fillCircle(wx - 9, wy, 5);
+            g.fillStyle(0x003333, 1); g.fillCircle(wx + 9, wy, 2);
+            g.fillStyle(0x003333, 1); g.fillCircle(wx - 9, wy, 2);
+
+            // Highlight
+            g.fillStyle(0xaaffee, 0.6 * pulse); g.fillRect(wx - 8, wy - 2, 6, 2);
+
+            // Border
+            g.lineStyle(1, 0x44ffdd, 0.7 * pulse);
+            g.strokeCircle(wx, wy, 14);
+        }
+
+        // Fuel canisters (red cylinder top-down)
+        for (const f of this.fuelCanisters) {
+            if (f.collected) continue;
+            const wx = f.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + f.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 3.5 + f.c * 1.3) * 0.3 + 0.7;
+
+            // Glow
+            g.fillStyle(0xff4400, 0.12 * pulse); g.fillCircle(wx, wy, 22);
+
+            // Canister body (cylinder viewed top-down = ellipse/rect)
+            g.fillStyle(0x440000, 1); g.fillRect(wx - 9, wy - 13, 18, 26);
+            g.fillStyle(0xcc2200, 1); g.fillRect(wx - 7, wy - 11, 14, 22);
+
+            // Danger stripes
+            g.fillStyle(0xffaa00, 1);
+            g.fillRect(wx - 7, wy - 4, 14, 4);
+            g.fillRect(wx - 7, wy + 4, 14, 3);
+
+            // Cap top/bottom
+            g.fillStyle(0x882200, 1); g.fillRect(wx - 9, wy - 13, 18, 4);
+            g.fillStyle(0x882200, 1); g.fillRect(wx - 9, wy + 9, 18, 4);
+
+            // Nozzle
+            g.fillStyle(0x555555, 1); g.fillRect(wx - 3, wy - 16, 6, 4);
+            g.fillStyle(0x888888, 1); g.fillRect(wx - 2, wy - 17, 4, 2);
+
+            // Highlight
+            g.fillStyle(0xff8866, 0.5 * pulse); g.fillRect(wx - 6, wy - 10, 3, 8);
+
+            // Border
+            g.lineStyle(1, 0xff6633, 0.8 * pulse); g.strokeRect(wx - 9, wy - 13, 18, 26);
+        }
+
+        // In-flight meteors (all coords in world-space — camera handled by Phaser)
+        for (const m of this.incomingMeteors) {
+            const progress = 1 - (m.timer / m.dur); // 0→1
+            const tx = m.c * TILE + TILE/2;
+            const ty = OY + m.r * TILE + TILE/2;
+            const mx = m.ox + (tx - m.ox) * progress;
+            const my = m.oy + (ty - m.oy) * progress;
+
+            // Warning shadow on target tile (grows as meteor approaches)
+            const shadowR = 6 + progress * 26;
+            g.fillStyle(0xff2200, progress * 0.45); g.fillCircle(tx, ty, shadowR);
+            g.lineStyle(1, 0xff4400, progress * 0.8); g.strokeCircle(tx, ty, shadowR);
+
+            // Pulsing crosshair on target
+            if (progress > 0.15) {
+                const cross = shadowR + 5;
+                const pa = Math.sin(progress * Math.PI * 8) * 0.4 + 0.5;
+                g.lineStyle(1, 0xff6600, pa);
+                g.beginPath();
+                g.moveTo(tx - cross, ty); g.lineTo(tx + cross, ty);
+                g.moveTo(tx, ty - cross); g.lineTo(tx, ty + cross);
+                g.strokePath();
+            }
+
+            // Meteor body
+            const bodyR = 3 + progress * 3;
+            g.fillStyle(0xffffff, 0.95); g.fillCircle(mx, my, bodyR);
+            g.fillStyle(0xffaa44, 0.8);  g.fillCircle(mx, my, bodyR * 0.6);
+
+            // Trail
+            const TRAIL = 8;
+            for (let i = 1; i <= TRAIL; i++) {
+                const tp = Math.max(0, progress - i * 0.04);
+                const trx = m.ox + (tx - m.ox) * tp;
+                const try_ = m.oy + (ty - m.oy) * tp;
+                const ta = (1 - i / TRAIL) * 0.7;
+                const tr = bodyR * (1 - i / TRAIL) * 0.8;
+                g.fillStyle(0xff6600, ta); g.fillCircle(trx, try_, Math.max(0.5, tr));
+            }
+        }
+
+        // Meteorite impact flashes
+        for (const f of this.meteorFlashes) {
+            const wx = f.c * TILE + TILE/2;
+            const wy = OY + f.r * TILE + TILE/2;
+            const t  = f.life; // 1→0
+            const radius = (1 - t) * 38 + 6;
+            g.lineStyle(3 * t, 0xff6600, t); g.strokeCircle(wx, wy, radius);
+            g.lineStyle(1.5 * t, 0xffcc44, t * 0.7); g.strokeCircle(wx, wy, radius * 0.6);
+            if (t > 0.6) {
+                g.fillStyle(0xffffff, (t - 0.6) * 2.5); g.fillCircle(wx, wy, 14 * t);
+                g.fillStyle(0xff8800, (t - 0.6) * 1.5); g.fillCircle(wx, wy, 8 * t);
+            }
+        }
+
+        // Dust clouds after meteorite impacts
+        const DUST_R = 4 * TILE;
+        for (const d of this.dustClouds) {
+            const fade = d.life; // 1→0
+            // Pulsing swirling rings
+            for (let layer = 0; layer < 4; layer++) {
+                const r = DUST_R * (0.4 + layer * 0.2) * (1 + (1 - fade) * 0.3);
+                const a = fade * (0.22 - layer * 0.04);
+                const grey = 0xaaaaaa - layer * 0x111111;
+                g.fillStyle(grey, a);
+                g.fillCircle(d.wx, d.wy, r);
+            }
+            // Dense inner core (fades first)
+            if (fade > 0.3) {
+                g.fillStyle(0xccbbaa, (fade - 0.3) * 0.35);
+                g.fillCircle(d.wx, d.wy, DUST_R * 0.35);
+            }
+            // Soft outer edge
+            g.lineStyle(1, 0x999988, fade * 0.25);
+            g.strokeCircle(d.wx, d.wy, DUST_R);
+        }
+    }
+
+    // ── Habitat drawing — local coords, transform handles rotation ──
+    drawHabitat() {
+        const g = this.habitatGfx; g.clear();
+        g.setPosition(this.habX, this.habY);
+        g.setRotation(this.habAngle);
+        const inDark = this.habX < this.nightWorldX;
+
+        // shadow
+        g.fillStyle(0x000000, 0.25); g.fillEllipse(3, 3, 52, 34);
+
+        // chassis
+        g.fillStyle(0xb0b0c0, 1); g.fillRect(-22, -15, 44, 30);
+        // front nose (right = forward in local space)
+        g.fillStyle(0xc0c0d0, 1); g.fillEllipse(18, 0, 14, 24);
+        // dome
+        g.fillStyle(0xd0d0e0, 1); g.fillRect(-11, -10, 22, 20);
+        g.fillStyle(0x7799cc, 0.65); g.fillEllipse(0, 0, 24, 24);
+
+        // solar panels (perpendicular to travel = top/bottom in local space)
+        const pc = inDark ? 0x222233 : 0x1a3a99;
+        const cc = inDark ? 0x303042 : 0x2255cc;
+
+        g.lineStyle(2, 0x888898, 1); g.lineBetween(-6, -15, -6, -27);
+        g.fillStyle(pc, 1); g.fillRect(-26, -34, 40, 11);
+        g.lineStyle(1, cc, 0.65);
+        [-20,-13,-6,1].forEach(ox => g.lineBetween(ox, -34, ox, -23));
+        g.lineBetween(-26, -28, 14, -28);
+        if (!inDark) { g.fillStyle(0x44ff44, 0.9); g.fillRect(10, -33, 3, 3); }
+
+        g.lineStyle(2, 0x888898, 1); g.lineBetween(-6, 15, -6, 27);
+        g.fillStyle(pc, 1); g.fillRect(-26, 23, 40, 11);
+        g.lineStyle(1, cc, 0.65);
+        [-20,-13,-6,1].forEach(ox => g.lineBetween(ox, 23, ox, 34));
+        g.lineBetween(-26, 28, 14, 28);
+        if (!inDark) { g.fillStyle(0x44ff44, 0.9); g.fillRect(10, 30, 3, 3); }
+
+        // wheels
+        [[-19,-13],[15,-13],[-19,9],[15,9]].forEach(([dx,dy]) => {
+            g.fillStyle(0x333344, 1); g.fillRect(dx-3, dy-3, 6, 6);
+            g.lineStyle(1, 0x555566, 1); g.strokeRect(dx-3, dy-3, 6, 6);
+        });
+
+        // antenna blink
+        g.fillStyle(0xff4444, 1); g.fillCircle(-18, -18, 3);
+        if (Math.floor(this.gameTime * 2) % 2 === 0) {
+            g.fillStyle(0xff8888, 0.55); g.fillCircle(-18, -18, 6);
+        }
+
+        // headlight indicator (subtle — just the lamp unit)
+        if (this.lightsOn) {
+            g.fillStyle(0xffffcc, 0.95); g.fillEllipse(24, 0, 9, 12);
+            g.fillStyle(0xffffff, 0.5);  g.fillEllipse(24, 0, 5, 7);
+        } else {
+            g.fillStyle(0x444433, 0.9);  g.fillEllipse(24, 0, 9, 12);
+            g.fillStyle(0x222211, 0.6);  g.fillEllipse(24, 0, 5, 7);
+        }
+
+        // turbo exhaust flames (rear = left in local space)
+        if (this.turboActive) {
+            const flicker = Math.sin(this.gameTime * 40) * 0.25 + 0.75;
+            const fl = Math.round(18 + flicker * 22);
+            g.fillStyle(0xff5500, 0.85);
+            g.fillTriangle(-22, -8, -22-fl, 0, -22, 8);
+            g.fillStyle(0xffcc00, 0.9);
+            g.fillTriangle(-22, -4, -22-Math.round(fl*0.65), 0, -22, 4);
+            g.fillStyle(0xfff0aa, 0.95);
+            g.fillTriangle(-22, -2, -22-Math.round(fl*0.35), 0, -22, 2);
+            g.fillStyle(0xff8800, 0.18 * flicker);
+            g.fillEllipse(-26, 0, 18, 22);
+        }
+    }
+
+    // ── Lit terrain: smooth headlight cone above the night overlay ──
+    drawLitTerrain() {
+        const g = this.lightGfx;
+        g.clear();
+        if (!this.lightsOn) return;
+
+        const darkness = 1 - (1 - Phaser.Math.Clamp(1 - (this.habX - this.nightWorldX) / 800, 0, 1));
+        // Only draw when there's actual darkness to illuminate
+        if (darkness < 0.04) return;
+
+        const camL = this.cameras.main.scrollX;
+        const cosA = Math.cos(this.habAngle);
+        const sinA = Math.sin(this.habAngle);
+
+        // Origin: front of vehicle in screen coords
+        const ox = this.habX + cosA * 22 - camL;
+        const oy = this.habY + sinA * 22;
+
+        // Beam tip points (screen coords) at different distances
+        const reach = 260;
+        const spread = 52; // half-width at full reach
+
+        // Compute the 3 beam tip points
+        const perpX = -sinA, perpY = cosA;
+        const tipX  = ox + cosA * reach;
+        const tipY  = oy + sinA * reach;
+        const leftX  = tipX + perpX * spread;
+        const leftY  = tipY + perpY * spread;
+        const rightX = tipX - perpX * spread;
+        const rightY = tipY - perpY * spread;
+
+        // ── Outer glow (wide, very soft) ──
+        g.fillStyle(0xfff4cc, darkness * 0.10);
+        g.fillTriangle(ox, oy, leftX + perpX * 30, leftY + perpY * 30, rightX - perpX * 30, rightY - perpY * 30);
+
+        // ── Mid cone ──
+        g.fillStyle(0xfff0bb, darkness * 0.18);
+        g.fillTriangle(ox, oy, leftX, leftY, rightX, rightY);
+
+        // ── Inner bright core (narrow) ──
+        const innerSpread = spread * 0.38;
+        g.fillStyle(0xfffde8, darkness * 0.30);
+        g.fillTriangle(
+            ox, oy,
+            tipX + perpX * innerSpread, tipY + perpY * innerSpread,
+            tipX - perpX * innerSpread, tipY - perpY * innerSpread
+        );
+
+        // ── Central hotspot near lamp ──
+        g.fillStyle(0xffffff, darkness * 0.22);
+        g.fillEllipse(ox + cosA * 30, oy + sinA * 30, 38, 26);
+
+        // ── Lamp source glow ──
+        g.fillStyle(0xffffee, darkness * 0.35);
+        g.fillCircle(ox, oy, 10);
+    }
+
+    // ── Input ─────────────────────────────────────────────────
+    onPointerMove(pointer) {
+        const wx = pointer.x + this.cameras.main.scrollX;
+        const c  = Math.floor(wx / TILE);
+        const r  = Math.floor((pointer.y - OY) / TILE);
+        const hC = Math.floor(this.habX / TILE);
+        if (c === hC || c < 0 || c >= COLS || r < 0 || r >= ROWS) { this.previewTile = null; return; }
+        const t = this.grid[c][r];
+        if (t === T_ROAD) { this.previewTile = null; return; }
+        const demolish = (t === T_CRATER || t === T_BOULDER);
+        this.previewTile = { c, r, demolish };
+    }
+
+    onPointerDown(pointer) {
+        const wx = pointer.x + this.cameras.main.scrollX;
+        const c  = Math.floor(wx / TILE);
+        const r  = Math.floor((pointer.y - OY) / TILE);
+        const hC = Math.floor(this.habX / TILE);
+        if (c === hC || c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+        const t  = this.grid[c][r];
+        const sx = c * TILE + TILE/2 - this.cameras.main.scrollX;
+        const sy = OY + r * TILE + TILE/2;
+
+        if (t === T_CRATER || t === T_BOULDER) {
+            const key = `${c}_${r}`;
+            this.demolishCounts[key] = (this.demolishCounts[key] || 0) + 1;
+            const cnt = this.demolishCounts[key];
+            if (cnt >= 15) {
+                this.grid[c][r] = T_EMPTY;
+                delete this.demolishCounts[key];
+                this.popup(sx, sy, 'USUNIĘTO!', '#ffaa44');
+            } else {
+                this.popup(sx, sy, `${cnt}/15`, '#ff8833');
+            }
+            return;
+        }
+
+        if (t !== T_EMPTY) return;
+        this.grid[c][r] = T_ROAD;
+        this.roadBuilt++;
+        this.popup(sx, sy, '+DROGA', '#88ff44');
+    }
+
+    popup(sx, sy, label, color) {
+        const txt = this.add.text(sx, sy, label, {
+            fontSize: '14px', fontFamily: 'monospace', color,
+            stroke: '#001100', strokeThickness: 2
+        }).setScrollFactor(0).setDepth(30).setOrigin(0.5);
+        this.tweens.add({ targets: txt, y: sy-40, alpha: 0, duration: 900, ease: 'Power2', onComplete: () => txt.destroy() });
+    }
+
+    flashHint(msg, color) {
+        this.hintTxt.setText(msg).setColor(color);
+        this.time.delayedCall(2500, () => {
+            this.hintTxt.setText('W=do przodu  S=hamulec  A=góra  D=dół  SPACJA=turbo  F=światła  B=bateria→moc').setColor('#4444aa');
+        });
+    }
+
+    // ── Update ────────────────────────────────────────────────
+    update(time, delta) {
+        const dt = Math.min(delta / 1000, 0.05);
+        this.gameTime += dt;
+
+        this.nightSpeed  = 26 + Math.floor(this.gameTime / 55) * 5;
+        this.nightWorldX += this.nightSpeed * dt;
+
+        this.turboActive = this.turboKey.isDown && this.fuel > 0;
+        if (Phaser.Input.Keyboard.JustDown(this.fKey)) this.lightsOn = !this.lightsOn;
+        if (Phaser.Input.Keyboard.JustDown(this.bKey) && this.batteriesCollected > 0) {
+            this.batteriesCollected--;
+            this.power = Math.min(100, this.power + 25);
+            this.popup(W / 2, H / 2 - 40, '+25% MOC [bateria]', '#aaff00');
+        }
+        if (Phaser.Input.Keyboard.JustDown(this.rKey) && this.repairKitsCollected > 0) {
+            this.repairKitsCollected--;
+            const activeFailures = [];
+            if (this.o2Failure)    activeFailures.push('o2');
+            if (this.driveFailure) activeFailures.push('drive');
+            if (this.solarFailure) activeFailures.push('solar');
+            if (activeFailures.length > 0) {
+                const fix = activeFailures[Math.floor(Math.random() * activeFailures.length)];
+                if (fix === 'o2') {
+                    this.o2Failure = false; this.o2FailTimer = 0;
+                    this.popup(W / 2, H / 2 - 40, '🔧 SYSTEM O₂ NAPRAWIONY', '#44ffcc');
+                } else if (fix === 'drive') {
+                    this.driveFailure = false; this.driveFailTimer = 0;
+                    this.popup(W / 2, H / 2 - 40, '🔧 NAPĘD NAPRAWIONY', '#44ffcc');
+                } else {
+                    this.solarFailure = false; this.solarFailTimer = 0;
+                    this.popup(W / 2, H / 2 - 40, '🔧 PANELE SŁONECZNE NAPRAWIONE', '#44ffcc');
+                }
+            } else {
+                this.hull = Math.min(100, this.hull + 25);
+                this.popup(W / 2, H / 2 - 40, '+25% KADŁUB [klucz]', '#44ffcc');
+            }
+        }
+
+        this.moveHabitat(dt);
+        this.cameras.main.scrollX += (this.habX - W/3 - this.cameras.main.scrollX) * 0.1;
+
+        this.checkPickups();
+        this.checkRepairKits();
+        this.checkFuelCanisters();
+        this.updateTrail(dt);
+
+        // lightFraction: mirrors updateNightOverlay (0=full dark, 1=full day)
+        const _gap = this.habX - this.nightWorldX;
+        const _t   = Phaser.Math.Clamp(1 - _gap / 800, 0, 1);
+        const darkness = _t * _t * _t * (_t * (6 * _t - 15) + 10);
+        const lightFraction = 1 - darkness;
+
+        const inDark = lightFraction < 0.5;
+        const drain  = (1 - lightFraction) * 15 * (this.lightsOn ? 2 : 1);
+        const DUST_R = 4 * TILE;
+        let dustIntensity = 0;
+        for (const d of this.dustClouds) {
+            const dx = this.habX - d.wx, dy = this.habY - d.wy;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < DUST_R) {
+                const proximity = 1 - dist / DUST_R;
+                dustIntensity = Math.min(1, dustIntensity + proximity * d.life);
+            }
+        }
+        const dustMod = dustIntensity > 0 ? (1 - dustIntensity * 0.85) : 1;
+        if (dustIntensity > 0) {
+            this.hull = Phaser.Math.Clamp(this.hull - dustIntensity * 1.2 * dt, 0, 100);
+        }
+        const regen  = this.solarFailure ? 0 : lightFraction * 6 * dustMod;
+
+        this.dustIntensity = dustIntensity;
+        this.power   = Phaser.Math.Clamp(this.power + (regen - drain) * dt, 0, 100);
+
+        // Fuel: burned by turbo only, no passive regen
+        if (this.turboActive) {
+            this.fuel = Phaser.Math.Clamp(this.fuel - 18 * dt, 0, 100);
+        }
+
+        this.redrawTerrain();
+        this.drawHabitat();
+        this.redrawPickups();
+        this.updatePreview();
+        this.updateNightOverlay();
+        this.drawLitTerrain();
+        this.updateUI(inDark);
+
+        // Random O₂ failure events
+        this.o2FailCooldown -= dt;
+        if (!this.o2Failure && this.o2FailCooldown <= 0) {
+            this.o2Failure      = true;
+            this.o2FailTimer    = 8 + Math.random() * 14;    // failure lasts 8-22 s
+            this.o2FailCooldown = 30 + Math.random() * 50;   // next failure in 30-80 s
+            const sx = this.habX - this.cameras.main.scrollX;
+            this.popup(sx, this.habY - 52, '⚠ AWARIA SYSTEMU O₂', '#ff2200');
+        }
+        if (this.o2Failure) {
+            this.o2FailTimer -= dt;
+            if (this.o2FailTimer <= 0) {
+                this.o2Failure = false;
+                const sx = this.habX - this.cameras.main.scrollX;
+                this.popup(sx, this.habY - 52, 'O₂ SYSTEM PRZYWRÓCONY', '#44ff88');
+            }
+        }
+
+        // Random drive failure events
+        this.driveFailCooldown -= dt;
+        if (!this.driveFailure && this.driveFailCooldown <= 0) {
+            this.driveFailure      = true;
+            this.driveFailTimer    = 6 + Math.random() * 12;   // 6-18 s
+            this.driveFailCooldown = 40 + Math.random() * 60;  // next in 40-100 s
+            const sx = this.habX - this.cameras.main.scrollX;
+            this.popup(sx, this.habY - 68, '⚙ AWARIA NAPĘDU!', '#ffcc00');
+        }
+        if (this.driveFailure) {
+            this.driveFailTimer -= dt;
+            if (this.driveFailTimer <= 0) {
+                this.driveFailure = false;
+                const sx = this.habX - this.cameras.main.scrollX;
+                this.popup(sx, this.habY - 68, 'NAPĘD PRZYWRÓCONY', '#88ffcc');
+            }
+        }
+
+        // Random solar panel failure
+        this.solarFailCooldown -= dt;
+        if (!this.solarFailure && this.solarFailCooldown <= 0) {
+            this.solarFailure      = true;
+            this.solarFailTimer    = 10 + Math.random() * 15;   // lasts 10-25 s
+            this.solarFailCooldown = 45 + Math.random() * 55;   // next in 45-100 s
+            const sx = this.habX - this.cameras.main.scrollX;
+            this.popup(sx, this.habY - 84, '☀ AWARIA PANELI SŁONECZNYCH!', '#ffcc00');
+        }
+        if (this.solarFailure) {
+            this.solarFailTimer -= dt;
+            if (this.solarFailTimer <= 0) {
+                this.solarFailure = false;
+                const sx = this.habX - this.cameras.main.scrollX;
+                this.popup(sx, this.habY - 84, 'PANELE SŁONECZNE PRZYWRÓCONE', '#aaff44');
+            }
+        }
+
+        // Micrometeorite impacts
+        this.meteorCooldown -= dt;
+        if (this.meteorCooldown <= 0) {
+            this.meteorCooldown = 5 + Math.random() * 8;
+            const camL = this.cameras.main.scrollX;
+            const cMin = Math.max(6, Math.floor(camL / TILE));
+            const cMax = Math.min(COLS - 1, Math.floor((camL + W) / TILE));
+            const c = cMin + Math.floor(Math.random() * (cMax - cMin + 1));
+            const r = Math.floor(Math.random() * ROWS);
+            // Origin: random edge of screen (in screen-space, stored as world offsets)
+            const angle = Math.random() * Math.PI * 2;
+            const dist  = 520 + Math.random() * 200;
+            const tx = c * TILE + TILE/2;
+            const ty = OY + r * TILE + TILE/2;
+            const dur = 1.8 + Math.random() * 0.6;
+            this.incomingMeteors.push({
+                c, r,
+                timer: dur, dur,
+                ox: tx + Math.cos(angle) * dist, // world-space origin
+                oy: ty + Math.sin(angle) * dist,
+            });
+        }
+
+        // Advance in-flight meteors
+        for (let i = this.incomingMeteors.length - 1; i >= 0; i--) {
+            const m = this.incomingMeteors[i];
+            m.timer -= dt;
+            if (m.timer <= 0) {
+                this.incomingMeteors.splice(i, 1);
+                if (this.grid[m.c][m.r] === T_EMPTY || this.grid[m.c][m.r] === T_ROAD) {
+                    this.grid[m.c][m.r] = T_CRATER;
+                }
+                this.meteorFlashes.push({ c: m.c, r: m.r, life: 1.0 });
+                this.dustClouds.push({
+                    wx: m.c * TILE + TILE/2,
+                    wy: OY + m.r * TILE + TILE/2,
+                    life: 1.0, maxLife: 18 + Math.random() * 8
+                });
+                const hC = Math.floor(this.habX / TILE);
+                const hR = Math.floor((this.habY - OY) / TILE);
+                const dc = Math.abs(hC - m.c);
+                const dr = Math.abs(hR - m.r);
+                const sx = this.habX - this.cameras.main.scrollX;
+                if (dc === 0 && dr === 0) {
+                    this.hull = Math.max(0, this.hull - 25);
+                    this.popup(sx, this.habY - 52, '☄ BEZPOŚREDNIE TRAFIENIE! -25%', '#ff2200');
+                } else if (dc <= 1 && dr <= 1) {
+                    this.hull = Math.max(0, this.hull - 10);
+                    this.popup(sx, this.habY - 52, '☄ ODŁAMKI! -10% KADŁUB', '#ff6600');
+                } else {
+                    const impactSx = m.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                    this.popup(impactSx, OY + m.r * TILE + TILE/2, '☄ MIKROMETEORIT', '#ff8844');
+                }
+            }
+        }
+
+        // Decay impact flashes
+        for (let i = this.meteorFlashes.length - 1; i >= 0; i--) {
+            this.meteorFlashes[i].life -= dt * 2.5;
+            if (this.meteorFlashes[i].life <= 0) this.meteorFlashes.splice(i, 1);
+        }
+        for (let i = this.dustClouds.length - 1; i >= 0; i--) {
+            this.dustClouds[i].life -= dt / this.dustClouds[i].maxLife;
+            if (this.dustClouds[i].life <= 0) this.dustClouds.splice(i, 1);
+        }
+
+        // Oxygen drain / regen
+        if (this.power < 10) {
+            // Low power → life support collapsing
+            const drainRate = 8 * (1 - this.power / 10);
+            this.oxygen = Phaser.Math.Clamp(this.oxygen - drainRate * dt, 0, 100);
+        } else if (this.o2Failure) {
+            this.oxygen = Phaser.Math.Clamp(this.oxygen - 3 * dt, 0, 100);
+        } else if (this.oxygen < 100) {
+            this.oxygen = Phaser.Math.Clamp(this.oxygen + 2 * dt, 0, 100);
+        }
+        // Turbo burns oxygen (rocket combustion)
+        if (this.turboActive) {
+            this.oxygen = Phaser.Math.Clamp(this.oxygen - 12 * dt, 0, 100);
+        }
+
+        if (this.oxygen <= 0 || this.hull <= 0) {
+            this.scene.start('GameOver', {
+                distance:   Math.floor((this.habX - this.startX) / 5.2),
+                roadBuilt:  this.roadBuilt,
+                nightSpeed: Math.floor(this.nightSpeed),
+                cause: this.hull <= 0 ? 'hull' : 'oxygen'
+            });
+        }
+    }
+
+    // ── Habitat movement — angle-based, fully manual ─────────
+    moveHabitat(dt) {
+        const c = Math.floor(this.habX / TILE);
+        const r = Math.floor((this.habY - OY) / TILE);
+        const curType = (c >= 0 && c < COLS && r >= 0 && r < ROWS) ? this.grid[c][r] : T_EMPTY;
+
+        const hullMod  = 0.4 + 0.6 * (this.hull / 100);
+        const driveMod = this.driveFailure ? 0.35 : 1;
+        const topSpeed = (curType === T_ROAD ? 92 : 28) * (this.turboActive ? 1.9 : 1) * hullMod * driveMod;
+        const inNight  = this.habX < this.nightWorldX;
+
+        // ── Rotate (A = turn up/left, D = turn down/right) ───
+        const turnRate = 2.4; // rad/s
+        if (this.aKey.isDown) this.habAngle -= turnRate * dt;
+        if (this.dKey.isDown) this.habAngle += turnRate * dt;
+
+        // ── Accelerate / brake (W / S) ────────────────────────
+        if (this.wKey.isDown) {
+            this.habVX = Math.min(this.habVX + 280 * dt, topSpeed);
+        } else if (this.sKey.isDown) {
+            this.habVX = Math.max(this.habVX - 350 * dt, -(topSpeed * 0.3));
+        } else {
+            const drag = 160;
+            if (this.habVX > 0) this.habVX = Math.max(0, this.habVX - drag * dt);
+            else if (this.habVX < 0) this.habVX = Math.min(0, this.habVX + drag * dt);
+        }
+        // Gradual deceleration when speed exceeds current topSpeed (e.g. drive failure kicks in)
+        if (this.habVX > topSpeed) this.habVX = Math.max(topSpeed, this.habVX - 180 * dt);
+        else if (this.habVX < -(topSpeed * 0.3)) this.habVX = Math.min(-(topSpeed * 0.3), this.habVX + 180 * dt);
+
+        // ── Move along heading ────────────────────────────────
+        const spd = (inNight ? 0.35 : 1) * this.habVX;
+        const nx  = this.habX + Math.cos(this.habAngle) * spd * dt;
+        const ny  = this.habY + Math.sin(this.habAngle) * spd * dt;
+
+        const nc = Math.floor(nx / TILE);
+        const nr = Math.floor((ny - OY) / TILE);
+
+        if (this.isPassable(nc, nr)) {
+            this.habX = nx;
+            this.habY = ny;
+        } else {
+            // Boulder impact damage
+            const hitBoulder = this.isBoulder(nc, nr) ||
+                               this.isBoulder(nc, r)  ||
+                               this.isBoulder(c,  nr);
+            if (hitBoulder && Math.abs(spd) > 12) {
+                const dmg = Math.round(Math.abs(spd) / 7);
+                this.hull = Math.max(0, this.hull - dmg);
+                this.habVX *= 0.12; // jarring stop
+                const sx = this.habX - this.cameras.main.scrollX;
+                this.popup(sx, this.habY - 35, `-${dmg}% KADŁUB`, '#ff6622');
+            } else if (this.isPassable(c, nr)) {
+                this.habY = ny;
+                this.habVX *= 0.4;
+            } else if (this.isPassable(nc, r)) {
+                this.habX = nx;
+                this.habVX *= 0.4;
+            } else {
+                this.habVX = 0;
+            }
+        }
+
+        // Off-road hull wear — rough regolith slowly damages the chassis
+        if (curType === T_EMPTY && Math.abs(this.habVX) > 5) {
+            const wear = 1.8 * (Math.abs(this.habVX) / 92) * dt;
+            this.hull = Math.max(0, this.hull - wear);
+        }
+
+        this.habX = Phaser.Math.Clamp(this.habX, TILE / 2, COLS * TILE - TILE / 2);
+        this.habY = Phaser.Math.Clamp(this.habY, OY + TILE / 2, OY + (ROWS - 0.5) * TILE);
+    }
+
+    // ── Pickup collection ─────────────────────────────────────
+    checkPickups() {
+        for (const p of this.pickups) {
+            if (p.collected) continue;
+            const dx = p.c * TILE + TILE/2 - this.habX;
+            const dy = OY + p.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                p.collected = true;
+                this.batteriesCollected++;
+                this.power = Math.min(100, this.power + 25);
+                const sx = p.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + p.r * TILE + TILE/2, '+25% MOC', '#aaff00');
+            }
+        }
+    }
+
+    checkRepairKits() {
+        for (const k of this.repairKits) {
+            if (k.collected) continue;
+            const dx = k.c * TILE + TILE/2 - this.habX;
+            const dy = OY + k.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                k.collected = true;
+                this.repairKitsCollected++;
+                const sx = k.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + k.r * TILE + TILE/2, '🔧 KLUCZ NAPRAWCZY', '#44ffcc');
+            }
+        }
+    }
+
+    checkFuelCanisters() {
+        for (const f of this.fuelCanisters) {
+            if (f.collected) continue;
+            const dx = f.c * TILE + TILE/2 - this.habX;
+            const dy = OY + f.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                f.collected = true;
+                this.fuel = Math.min(100, this.fuel + 30);
+                const sx = f.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + f.r * TILE + TILE/2, '⛽ +30% PALIWO', '#ff8844');
+            }
+        }
+    }
+
+    // ── Wheel trail ───────────────────────────────────────────
+    updateTrail(dt) {
+        this.trailTimer += dt;
+        const trailInterval = this.turboActive ? 0.02 : 0.05;
+        if (this.trailTimer > trailInterval && this.power > 0) {
+            this.trailTimer = 0;
+            const spread = this.turboActive ? 10 : 7;
+            const cos = Math.cos(this.habAngle), sin = Math.sin(this.habAngle);
+            const bx = this.habX - cos * 22;   // rear centre (world)
+            const by = this.habY - sin * 22;
+            const px = -sin * spread;           // perpendicular offset
+            const py =  cos * spread;
+            this.trail.push({ x: bx + px, y: by + py, life: 1, turbo: this.turboActive });
+            this.trail.push({ x: bx - px, y: by - py, life: 1, turbo: this.turboActive });
+            if (this.turboActive) {
+                this.trail.push({ x: bx, y: by, life: 1.4, turbo: true });
+            }
+            if (this.trail.length > 90) this.trail.splice(0, 3);
+        }
+        const g = this.trailGfx; g.clear();
+        for (const t of this.trail) {
+            t.life -= dt * (t.turbo ? 2.2 : 1.6);
+            if (t.life > 0) {
+                if (t.turbo) {
+                    g.fillStyle(0xff7700, t.life * 0.35);
+                    g.fillRect(t.x, t.y, 4, 4);
+                } else {
+                    g.fillStyle(0x888888, t.life * 0.22);
+                    g.fillRect(t.x, t.y, 3, 3);
+                }
+            }
+        }
+        this.trail = this.trail.filter(t => t.life > 0);
+    }
+
+    // ── Hover preview ─────────────────────────────────────────
+    updatePreview() {
+        const g = this.previewGfx; g.clear();
+        if (!this.previewTile) return;
+        const { c, r, demolish } = this.previewTile;
+        const sx = c * TILE - this.cameras.main.scrollX;
+        const sy = OY + r * TILE;
+        if (demolish) {
+            const cnt = this.demolishCounts[`${c}_${r}`] || 0;
+            g.fillStyle(0xff6600, 0.20); g.fillRect(sx, sy, TILE, TILE);
+            g.lineStyle(2, 0xff8833, 0.90); g.strokeRect(sx, sy, TILE, TILE);
+            // remaining hits label
+            const left = 15 - cnt;
+            g.fillStyle(0xff4400, 0.30); g.fillRect(sx + TILE/2 - 8, sy + TILE/2 - 7, 16, 14);
+        } else {
+            g.fillStyle(0x88ff44, 0.22); g.fillRect(sx, sy, TILE, TILE);
+            g.lineStyle(2, 0x88ff44, 0.88); g.strokeRect(sx, sy, TILE, TILE);
+            g.fillStyle(0xffffff, 0.38); g.fillRect(sx+TILE/2-5, sy+TILE/2-2, 10, 4);
+        }
+    }
+
+    // ── Night overlay ─────────────────────────────────────────
+    updateNightOverlay() {
+        const g = this.nightGfx; g.clear();
+
+        // darkness = how close the night is to the habitat (0=far/day, 1=engulfed)
+        const gap = this.habX - this.nightWorldX; // positive = habitat ahead of night
+        // smootherstep mapping: gap 800→full day, gap 0→full night
+        const t = Phaser.Math.Clamp(1 - gap / 800, 0, 1);
+        const darkness = t * t * t * (t * (6 * t - 15) + 10);
+        const di = this.dustIntensity || 0;
+
+        if (darkness < 0.01 && di < 0.01) return;
+
+        // Uniform dark overlay — whole screen
+        g.fillStyle(0x000008, darkness * 0.93);
+        g.fillRect(0, 0, W, H);
+
+        // Indigo tint at mid-dusk
+        if (darkness > 0.15) {
+            g.fillStyle(0x080022, darkness * 0.28);
+            g.fillRect(0, 0, W, H);
+        }
+
+        // Deep blue at heavy darkness
+        if (darkness > 0.55) {
+            g.fillStyle(0x000418, (darkness - 0.55) * 0.5);
+            g.fillRect(0, 0, W, H);
+        }
+
+        // Dust cloud: grey veil + swirling patches when habitat is inside
+        if (di > 0) {
+            // Full-screen grey desaturation layer
+            g.fillStyle(0xaa9977, di * 0.62);
+            g.fillRect(0, 0, W, H);
+
+            // Second pass: brownish grey for density feel
+            g.fillStyle(0x887766, di * 0.30);
+            g.fillRect(0, 0, W, H);
+
+            // Swirling dust clumps around habitat (screen-space)
+            const hsx = this.habX - this.cameras.main.scrollX;
+            const hsy = this.habY;
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2 + this.gameTime * 0.5;
+                const r = 40 + i * 22;
+                const px = hsx + Math.cos(angle) * r;
+                const py = hsy + Math.sin(angle) * r * 0.55;
+                g.fillStyle(0xccbb99, di * (0.22 - i * 0.018));
+                g.fillCircle(px, py, 28 + i * 7);
+            }
+
+            // Dense core right on the habitat
+            g.fillStyle(0xddccaa, di * 0.28);
+            g.fillCircle(hsx, hsy, 65);
+        }
+    }
+
+    // ── HUD ───────────────────────────────────────────────────
+    updateUI(inDark) {
+        const g = this.uiGfx; g.clear();
+        const oxyBlink = Math.floor(this.gameTime * 4) % 2 === 0;
+
+        // left panel
+        g.fillStyle(0x000015, 0.82); g.fillRect(10, 10, 295, 148);
+        g.lineStyle(1, 0x334466, 0.7); g.strokeRect(10, 10, 295, 148);
+        // power bar
+        const pw = (this.power/100)*255;
+        const pc = this.power > 60 ? 0x33ee44 : this.power > 30 ? 0xffaa22 : 0xff3333;
+        g.fillStyle(0x181828, 1); g.fillRect(20, 52, 255, 16);
+        g.fillStyle(pc, 1); g.fillRect(20, 52, pw, 16);
+        if (this.power < 30) {
+            g.fillStyle(0xff0000, Math.sin(this.gameTime*9)*0.25+0.3);
+            g.fillRect(20, 52, pw, 16);
+        }
+        g.lineStyle(1, 0x556677, 0.7); g.strokeRect(20, 52, 255, 16);
+        // fuel bar
+        const fw = (this.fuel / 100) * 255;
+        const turboBg = this.turboActive ? 0x331100 : 0x181818;
+        g.fillStyle(turboBg, 1); g.fillRect(20, 74, 255, 10);
+        const fuelFill = this.turboActive ? 0xff6600
+            : this.fuel > 60 ? 0xaa4400 : this.fuel > 25 ? 0x883300 : 0xff2200;
+        g.fillStyle(fuelFill, this.turboActive ? 1 : 0.7);
+        g.fillRect(20, 74, fw, 10);
+        if (this.turboActive) {
+            const shimX = 20 + ((this.gameTime * 180) % Math.max(1, fw));
+            g.fillStyle(0xffcc88, 0.4); g.fillRect(shimX, 74, 18, 10);
+        }
+        if (this.fuel < 20) {
+            g.fillStyle(0xff4400, Math.sin(this.gameTime * 8) * 0.3 + 0.3);
+            g.fillRect(20, 74, fw, 10);
+        }
+        g.lineStyle(1, 0x664422, 0.8); g.strokeRect(20, 74, 255, 10);
+
+        // oxygen bar
+        const ow = Math.round((this.oxygen / 100) * 255);
+        const oc = this.oxygen > 60 ? 0x22bbff : this.oxygen > 25 ? 0xffaa00 : 0xff2222;
+        g.fillStyle(0x061520, 1); g.fillRect(20, 90, 255, 10);
+        g.fillStyle(oc, 1); g.fillRect(20, 90, ow, 10);
+        if (this.oxygen < 25) {
+            g.fillStyle(0x00ffff, Math.sin(this.gameTime * 8) * 0.35 + 0.15);
+            g.fillRect(20, 90, ow, 10);
+        }
+        g.lineStyle(1, 0x224466, 0.8); g.strokeRect(20, 90, 255, 10);
+
+        // hull bar
+        const hw = Math.round((this.hull / 100) * 255);
+        const hc = this.hull > 60 ? 0xff9922 : this.hull > 30 ? 0xff5500 : 0xff1111;
+        g.fillStyle(0x1a0800, 1); g.fillRect(20, 132, 255, 10);
+        g.fillStyle(hc, 1); g.fillRect(20, 132, hw, 10);
+        if (this.hull < 30) {
+            g.fillStyle(0xff6600, Math.sin(this.gameTime * 7) * 0.35 + 0.15);
+            g.fillRect(20, 132, hw, 10);
+        }
+        g.lineStyle(1, 0x663300, 0.8); g.strokeRect(20, 132, 255, 10);
+
+        // right panel
+        g.fillStyle(0x000015, 0.82); g.fillRect(W-305, 10, 295, 78);
+        g.lineStyle(1, 0x334466, 0.7); g.strokeRect(W-305, 10, 295, 78);
+        const nsw = Math.min(255, (this.nightSpeed/130)*255);
+        g.fillStyle(0x181828, 1); g.fillRect(W-295, 52, 255, 16);
+        g.fillStyle(0xff5522, 0.88); g.fillRect(W-295, 52, nsw, 16);
+        g.lineStyle(1, 0x556677, 0.7); g.strokeRect(W-295, 52, 255, 16);
+
+        // bottom proximity bar
+        const gap  = this.habX - this.nightWorldX;
+        const frac = Phaser.Math.Clamp(gap / 700, 0, 1);
+        g.fillStyle(0x0a0a1a, 0.72); g.fillRect(10, H-22, W-20, 13);
+        g.fillStyle(frac > 0.4 ? 0x44aa44 : frac > 0 ? 0xaaaa22 : 0xcc2222, 0.82);
+        g.fillRect(10, H-22, (W-20)*frac, 13);
+        g.lineStyle(1, 0x334466, 0.5); g.strokeRect(10, H-22, W-20, 13);
+        g.fillStyle(0xffffff, 0.9); g.fillRect(10+(W-20)*frac-1, H-24, 3, 17);
+
+        const inDustHUD = (this.dustIntensity || 0) > 0;
+        const solarLabel = this.solarFailure
+            ? (oxyBlink ? '☀ ████ AWARIA PANELI ████' : `☀ PANELE OFF [${Math.ceil(this.solarFailTimer)}s]`)
+            : inDustHUD ? (oxyBlink ? '💨 PYŁ — PANELE 15%' : '💨 PYŁ METEORYTOWY')
+            : (inDark ? '⚡ AWARYJNE' : '☀️ SŁONECZNE');
+        this.powerTxt.setText(`${solarLabel}: ${Math.ceil(this.power)}%`);
+        this.powerTxt.setColor(this.solarFailure ? (oxyBlink ? '#ff4400' : '#ffaa00') : inDustHUD ? '#ccaa88' : '#ffffff');
+        const lightsLabel  = this.lightsOn ? '💡ON [×2 dr]' : '💡OFF [F=wł]';
+        const batLabel     = `🔋${this.batteriesCollected} [B=użyj]`;
+        const repairLabel  = `🔧${this.repairKitsCollected} [R=napraw]`;
+        const driveLabel   = this.driveFailure
+            ? (oxyBlink ? `⚙ AWARIA NAPĘDU [${Math.ceil(this.driveFailTimer)}s]` : '⚙ ████ NAPĘD ████')
+            : null;
+        const fuelLabel = `⛽${Math.ceil(this.fuel)}%`;
+        this.resTxt.setText(driveLabel ||
+            (this.turboActive
+                ? `🔥 TURBO [${fuelLabel} -O₂]  ${batLabel}  ${repairLabel}  ${lightsLabel}`
+                : `${fuelLabel} [SPC=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}`));
+        this.resTxt.setColor(this.driveFailure ? (oxyBlink ? '#ffcc00' : '#ff8800') : '#ffee44');
+        let oxyWarn = '';
+        if (this.o2Failure)      oxyWarn = oxyBlink ? ' ⚠ AWARIA!' : ` [${Math.ceil(this.o2FailTimer)}s]`;
+        else if (this.power < 10) oxyWarn = oxyBlink ? ' ◀ NISKIE ZASILANIE!' : '';
+        this.oxygenTxt.setText(`O₂ TLEN: ${Math.ceil(this.oxygen)}%${oxyWarn}`);
+        this.oxygenTxt.setColor(
+            this.o2Failure      ? (oxyBlink ? '#ff4400' : '#ff8844') :
+            this.oxygen > 60    ? '#66ccff' :
+            this.oxygen > 25    ? '#ffaa00' : '#ff4444'
+        );
+        const hullWarn = this.hull < 30 && oxyBlink ? ' ⚠ KRYTYCZNY!' : '';
+        this.hullTxt.setText(`KADŁUB: ${Math.ceil(this.hull)}%${hullWarn}`);
+        this.hullTxt.setColor(this.hull > 60 ? '#ffaa44' : this.hull > 30 ? '#ff6622' : '#ff2200');
+        this.distTxt.setText(`📏 ${Math.floor((this.habX-this.startX)/5.2)} m`);
+        this.nightTxt.setText(`🌑 noc: +${Math.floor(this.nightSpeed)} m/s`);
+
+        if (this.driveFailure) {
+            const tick = Math.floor(this.gameTime * 6) % 2 === 0;
+            this.warnTxt.setText(tick ? '⚙ AWARIA NAPĘDU — PRĘDKOŚĆ -78%!' : `NAPRAWA ZA ${Math.ceil(this.driveFailTimer)}s`);
+        } else if (this.o2Failure && this.oxygen < 60) {
+            const tick = Math.floor(this.gameTime * 5) % 2 === 0;
+            this.warnTxt.setText(tick ? '⚠ AWARIA O₂ — TLEN SPADA!' : `NAPRAWA ZA ${Math.ceil(this.o2FailTimer)}s`);
+        } else if (this.power < 10 && this.oxygen < 80) {
+            const tick = Math.floor(this.gameTime * 5) % 2 === 0;
+            this.warnTxt.setText(tick ? '💨 TLEN UCIEKA — PRZYWRÓĆ ZASILANIE!' : '⚡ WYJDŹ Z CIENIA!');
+        } else if (inDark) {
+            this.warnTxt.setText(Math.floor(this.gameTime*4)%2===0 ? '⚡ PANELE W CIEMNOŚCI — TRACISZ MOC!' : '');
+        } else if (gap < 380) {
+            this.warnTxt.setText(`${gap < 150 ? '⛔' : '⚠️'} NOC ${Math.floor(gap)}m — BUDUJ DROGĘ!`);
+        } else {
+            this.warnTxt.setText('');
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+new Phaser.Game({
+    type: Phaser.AUTO,
+    width: W, height: H,
+    backgroundColor: '#000010',
+    scene: [MenuScene, GameScene, GameOverScene],
+    parent: document.body,
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
+});
+</script>
+</body>
+</html>
