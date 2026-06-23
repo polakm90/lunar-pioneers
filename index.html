@@ -68,7 +68,7 @@ class MenuScene extends Phaser.Scene {
             ['🌑', 'Księżycowa noc nadciąga z lewej — pochłonie Twój habitat'],
             ['🛣️', 'Kliknij teren PRZED habitatem aby zbudować drogę (za darmo!)'],
             ['🔋', 'Baterie +25% moc  |  Klucze naprawcze +25% kadłub  (B / R)'],
-            ['🚀', 'W/S/A/D=jazda  SPACJA=turbo (spala paliwo+O₂)  F=światła'],
+            ['🚀', 'W/S/A/D=jazda  SHIFT=turbo (spala paliwo+O₂)  F=światła'],
             ['🕳️', 'Kratery są nieprzejezdne — buduj drogę dookoła nich'],
         ].forEach(([icon, txt], i) => {
             this.add.text(190, 248 + i * 36, `${icon}  ${txt}`, {
@@ -253,7 +253,7 @@ class GameScene extends Phaser.Scene {
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
         this.nightTxt = this.add.text(W-24, 42, '', { ...ts, color: '#ff8844', align: 'right' })
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
-        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SPC=turbo(paliwo+O₂)  F=światła  B=bateria→moc  R=klucz→kadłub', {
+        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo(paliwo+O₂)  F=światła  B=bateria→moc  R=klucz→kadłub', {
             fontSize: '13px', fontFamily: 'monospace', color: '#4444aa'
         }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(21);
         this.warnTxt  = this.add.text(W/2, 86, '', {
@@ -270,7 +270,7 @@ class GameScene extends Phaser.Scene {
         this.input.on('pointerdown', this.onPointerDown, this);
         this.input.on('pointermove', this.onPointerMove, this);
         const KC = Phaser.Input.Keyboard.KeyCodes;
-        this.turboKey = this.input.keyboard.addKey(KC.SPACE);
+        this.turboKey = this.input.keyboard.addKey(KC.SHIFT);
         this.wKey = this.input.keyboard.addKey(KC.W);
         this.sKey = this.input.keyboard.addKey(KC.S);
         this.aKey = this.input.keyboard.addKey(KC.A);
@@ -783,7 +783,7 @@ class GameScene extends Phaser.Scene {
     flashHint(msg, color) {
         this.hintTxt.setText(msg).setColor(color);
         this.time.delayedCall(2500, () => {
-            this.hintTxt.setText('W=do przodu  S=hamulec  A=góra  D=dół  SPACJA=turbo  F=światła  B=bateria→moc').setColor('#4444aa');
+            this.hintTxt.setText('W=do przodu  S=hamulec  A=góra  D=dół  SHIFT=turbo  F=światła  B=bateria→moc').setColor('#4444aa');
         });
     }
 
@@ -1341,7 +1341,7 @@ class GameScene extends Phaser.Scene {
         this.resTxt.setText(driveLabel ||
             (this.turboActive
                 ? `🔥 TURBO [${fuelLabel} -O₂]  ${batLabel}  ${repairLabel}  ${lightsLabel}`
-                : `${fuelLabel} [SPC=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}`));
+                : `${fuelLabel} [SHIFT=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}`));
         this.resTxt.setColor(this.driveFailure ? (oxyBlink ? '#ffcc00' : '#ff8800') : '#ffee44');
         let oxyWarn = '';
         if (this.o2Failure)      oxyWarn = oxyBlink ? ' ⚠ AWARIA!' : ` [${Math.ceil(this.o2FailTimer)}s]`;
