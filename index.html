@@ -76,13 +76,23 @@ class MenuScene extends Phaser.Scene {
             });
         });
 
-        const btn = this.add.text(W/2, 480, '[ ROZPOCZNIJ MISJĘ ]', {
-            fontSize: '28px', fontFamily: 'monospace',
+        const btn = this.add.text(W/2, 472, '[ NACIŚNIJ ENTER ABY ROZPOCZĄĆ ]', {
+            fontSize: '22px', fontFamily: 'monospace',
             color: '#ffff44', stroke: '#888800', strokeThickness: 2
         }).setOrigin(0.5);
         this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.35 }, duration: 700, yoyo: true, repeat: -1 });
-        this.input.once('pointerdown', () => this.scene.start('Game'));
-        this.input.keyboard.once('keydown', () => this.scene.start('Game'));
+        this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
+
+        // Replay last road option
+        const hasSaved = !!localStorage.getItem('lunarRoad');
+        if (hasSaved) {
+            const btn2 = this.add.text(W/2, 530, '[ BACKSPACE — JEDŹ PO OSTATNIEJ TRASIE ]', {
+                fontSize: '15px', fontFamily: 'monospace',
+                color: '#88bbff', stroke: '#001144', strokeThickness: 2
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn2, alpha: { from: 0.9, to: 0.35 }, duration: 900, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-BACKSPACE', () => this.scene.start('Game', { replayRoad: true }));
+        }
     }
 }
 
@@ -118,12 +128,11 @@ class GameOverScene extends Phaser.Scene {
         ].forEach(([t, c, y]) => {
             this.add.text(W/2, y, t, { fontSize: '19px', fontFamily: 'monospace', color: c }).setOrigin(0.5);
         });
-        const btn = this.add.text(W/2, 455, '[ SPRÓBUJ PONOWNIE ]', {
-            fontSize: '26px', fontFamily: 'monospace', color: '#ffff44'
+        const btn = this.add.text(W/2, 455, '[ NACIŚNIJ ENTER ABY SPRÓBOWAĆ PONOWNIE ]', {
+            fontSize: '18px', fontFamily: 'monospace', color: '#ffff44'
         }).setOrigin(0.5);
         this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.3 }, duration: 700, yoyo: true, repeat: -1 });
-        this.input.once('pointerdown', () => this.scene.start('Game'));
-        this.input.keyboard.once('keydown', () => this.scene.start('Game'));
+        this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
     }
 }
 
@@ -133,7 +142,7 @@ class GameOverScene extends Phaser.Scene {
 class GameScene extends Phaser.Scene {
     constructor() { super('Game'); }
 
-    create() {
+    create(data) {
         this.power      = 100;
         this.oxygen     = 100;
         this.hull       = 100;
@@ -168,10 +177,30 @@ class GameScene extends Phaser.Scene {
 
         // ── Grid ──────────────────────────────────────────────
         this.grid = Array.from({ length: COLS }, () => new Array(ROWS).fill(T_EMPTY));
-        for (let c = 0; c < 9; c++)
-            for (let r = 0; r < ROWS; r++) this.grid[c][r] = T_ROAD;
 
-        this.generateObstacles();
+        if (data && data.replayRoad) {
+            // Restore full grid from localStorage
+            try {
+                const flat = JSON.parse(localStorage.getItem('lunarRoad') || '[]');
+                for (let c = 0; c < COLS; c++)
+                    for (let r = 0; r < ROWS; r++) {
+                        const v = flat[c * ROWS + r];
+                        if (v !== undefined) this.grid[c][r] = v;
+                    }
+            } catch(e) {
+                this.generateObstacles();
+            }
+            try {
+                const wd = JSON.parse(localStorage.getItem('lunarWreck') || 'null');
+                // Discard wreck if it's within 8 tiles of the start — would block the player
+                this.wreckData = (wd && wd.x > 8 * TILE) ? wd : null;
+            } catch(e) { this.wreckData = null; }
+        } else {
+            this.wreckData = null;
+            for (let c = 0; c < 9; c++)
+                for (let r = 0; r < ROWS; r++) this.grid[c][r] = T_ROAD;
+            this.generateObstacles();
+        }
 
         // ── Pickups ───────────────────────────────────────────
         this.pickups = [];
@@ -245,6 +274,7 @@ class GameScene extends Phaser.Scene {
         this.lightGfx   = this.add.graphics().setScrollFactor(0).setDepth(12);
         this.uiGfx      = this.add.graphics().setScrollFactor(0).setDepth(20);
 
+
         // ── UI text ───────────────────────────────────────────
         const ts = { fontSize: '15px', fontFamily: 'monospace', color: '#ddddff' };
         this.powerTxt = this.add.text(24, 18, '', ts).setScrollFactor(0).setDepth(21);
@@ -253,7 +283,7 @@ class GameScene extends Phaser.Scene {
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
         this.nightTxt = this.add.text(W-24, 42, '', { ...ts, color: '#ff8844', align: 'right' })
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
-        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo(paliwo+O₂)  F=światła  B=bateria→moc  R=klucz→kadłub', {
+        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo  F=światła  B=bateria  R=naprawa  L=wyciągarka', {
             fontSize: '13px', fontFamily: 'monospace', color: '#4444aa'
         }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(21);
         this.warnTxt  = this.add.text(W/2, 86, '', {
@@ -278,6 +308,23 @@ class GameScene extends Phaser.Scene {
         this.fKey = this.input.keyboard.addKey(KC.F);
         this.bKey = this.input.keyboard.addKey(KC.B);
         this.rKey = this.input.keyboard.addKey(KC.R);
+        this.lKey = this.input.keyboard.addKey(KC.L);
+        this.escKey = this.input.keyboard.addKey(KC.ESC);
+
+        // ── Pause overlay ─────────────────────────────────────
+        this.gamePaused  = false;
+        this.winchActive = false;
+        this.winchAnchor = null;
+        this.pauseGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
+        const pts = { fontSize: '28px', fontFamily: 'monospace', color: '#ffffff', stroke: '#000000', strokeThickness: 3 };
+        const ptsSmall = { fontSize: '18px', fontFamily: 'monospace', color: '#ffff88', stroke: '#000000', strokeThickness: 2 };
+        const ptsHint  = { fontSize: '15px', fontFamily: 'monospace', color: '#8888cc' };
+        this.pauseTitleTxt  = this.add.text(W/2, 210, 'PAUZA', pts).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+        this.pauseResumeTxt = this.add.text(W/2, 290, '[ ESC / ENTER — WRÓĆ DO GRY ]', ptsSmall).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+        this.pauseNewTxt    = this.add.text(W/2, 340, '[ N — NOWA GRA ]', ptsSmall).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+        this.pauseMenuTxt   = this.add.text(W/2, 390, '[ M — MENU GŁÓWNE ]', ptsSmall).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+        this.pauseHintTxt   = this.add.text(W/2, 450, 'postęp zostanie utracony przy nowej grze', ptsHint).setOrigin(0.5).setScrollFactor(0).setDepth(51);
+        this.setPauseVisible(false);
     }
 
     // ── Obstacle generation ───────────────────────────────────
@@ -348,8 +395,15 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    isWreckTile(c, r) {
+        if (!this.wreckData) return false;
+        return c === Math.floor(this.wreckData.x / TILE) &&
+               r === Math.floor((this.wreckData.y - OY) / TILE);
+    }
+
     isPassable(c, r) {
         if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+        if (this.isWreckTile(c, r)) return false;
         const t = this.grid[c][r];
         return t !== T_CRATER && t !== T_BOULDER;
     }
@@ -520,6 +574,89 @@ class GameScene extends Phaser.Scene {
 
             // Border
             g.lineStyle(1, 0xff6633, 0.8 * pulse); g.strokeRect(wx - 9, wy - 13, 18, 26);
+        }
+
+        // Wreck of previous habitat
+        if (this.wreckData) {
+            const wwx = this.wreckData.x;
+            const wwy = this.wreckData.y;
+            if (wwx >= camL - 80 && wwx <= camL + W + 80) {
+                // Tilt the wreck slightly from original angle
+                const a  = this.wreckData.angle + 0.28;
+                const cA = Math.cos(a), sA = Math.sin(a);
+                const ox = wwx, oy = wwy;
+                // Local→world helper (same as habitat uses internally)
+                const wp = (lx, ly) => ({ x: ox + cA*lx - sA*ly, y: oy + sA*lx + cA*ly });
+
+                // ── Dirt/dust burial shadow ──
+                g.fillStyle(0x1a1508, 0.7); g.fillEllipse(ox, oy + 6, 58, 22);
+
+                // ── Detached panel 1 — near, rotated away ──
+                const pA = a + 0.6;
+                const p1 = wp(-4, -38);
+                g.fillStyle(0x141a2a, 0.95); g.fillRect(p1.x - 20, p1.y - 4, 38, 9);
+                g.fillStyle(0x1a2236, 0.7);  g.fillRect(p1.x - 18, p1.y - 2, 33, 4);
+                g.lineStyle(1, 0x0d1220, 0.7);
+                [-12,-5,2,9].forEach(ox2 => {
+                    g.beginPath(); g.moveTo(p1.x + ox2, p1.y - 4); g.lineTo(p1.x + ox2, p1.y + 5); g.strokePath();
+                });
+                // crack
+                g.lineStyle(1, 0x080e18, 0.9);
+                g.beginPath(); g.moveTo(p1.x - 6, p1.y - 4); g.lineTo(p1.x + 2, p1.y + 5); g.strokePath();
+
+                // ── Detached panel 2 — further, flat on ground ──
+                const p2 = wp(8, 38);
+                g.fillStyle(0x111826, 0.9);  g.fillRect(p2.x - 18, p2.y - 4, 34, 8);
+                g.fillStyle(0x16202e, 0.6);  g.fillRect(p2.x - 16, p2.y - 2, 30, 3);
+                g.lineStyle(1, 0x0a1018, 0.6);
+                [-10,-3,4,11].forEach(ox2 => {
+                    g.beginPath(); g.moveTo(p2.x + ox2, p2.y - 4); g.lineTo(p2.x + ox2, p2.y + 4); g.strokePath();
+                });
+                // buried edge — dirt overlay
+                g.fillStyle(0x1a1508, 0.55); g.fillRect(p2.x - 18, p2.y + 1, 34, 7);
+
+                // ── Main chassis — same size as live habitat ──
+                const ch = wp(0, 0);
+                g.fillStyle(0x606068, 1); g.fillRect(ch.x - 22, ch.y - 15, 44, 30);
+                g.fillStyle(0x50505a, 1); g.fillEllipse(ch.x + 18, ch.y, 14, 24); // nose
+                // darkened dome
+                g.fillStyle(0x484850, 1); g.fillRect(ch.x - 11, ch.y - 10, 22, 20);
+                g.fillStyle(0x334455, 0.5); g.fillEllipse(ch.x, ch.y, 24, 24);
+                // dents / cracks on chassis
+                g.lineStyle(1, 0x303038, 0.9);
+                g.beginPath(); g.moveTo(ch.x - 6, ch.y - 14); g.lineTo(ch.x + 5, ch.y - 4);  g.strokePath();
+                g.beginPath(); g.moveTo(ch.x + 8, ch.y - 14); g.lineTo(ch.x + 2, ch.y + 8);  g.strokePath();
+                g.beginPath(); g.moveTo(ch.x - 22, ch.y + 5); g.lineTo(ch.x - 10, ch.y - 2); g.strokePath();
+
+                // ── Broken panel arm stubs (still attached) ──
+                const t1 = wp(-6, -15); const t2 = wp(-6, 15);
+                g.lineStyle(2, 0x555560, 1);
+                g.beginPath(); g.moveTo(t1.x, t1.y); g.lineTo(t1.x - sA*6, t1.y + cA*6); g.strokePath();
+                g.beginPath(); g.moveTo(t2.x, t2.y); g.lineTo(t2.x - sA*6, t2.y + cA*6); g.strokePath();
+
+                // ── Wheels (half-buried) ──
+                for (const [lx, ly] of [[-19,-13],[15,-13],[-19,9],[15,9]]) {
+                    const p = wp(lx, ly);
+                    g.fillStyle(0x222230, 1); g.fillRect(p.x - 3, p.y - 3, 6, 6);
+                    g.fillStyle(0x1a1508, 0.6); g.fillRect(p.x - 3, p.y + 1, 6, 4); // dirt on lower half
+                }
+
+                // ── Bent antenna ──
+                const an = wp(-18, -18);
+                g.lineStyle(1, 0x555560, 0.8);
+                g.beginPath(); g.moveTo(an.x, an.y); g.lineTo(an.x + cA*4 + sA*5, an.y + sA*4 - cA*5); g.strokePath();
+                // dead light
+                g.fillStyle(0x441111, 0.9); g.fillCircle(an.x, an.y, 2);
+
+                // ── Dirt burial overlay (lower half sunk) ──
+                g.fillStyle(0x1a1508, 0.45); g.fillRect(ch.x - 23, ch.y + 8, 48, 10);
+
+                // ── Slow distress flicker ──
+                const blink = Math.floor(this.gameTime * 0.7) % 5;
+                if (blink === 0) {
+                    g.fillStyle(0xff1100, 0.45); g.fillCircle(an.x, an.y, 4);
+                }
+            }
         }
 
         // In-flight meteors (all coords in world-space — camera handled by Phaser)
@@ -735,7 +872,14 @@ class GameScene extends Phaser.Scene {
         const c  = Math.floor(wx / TILE);
         const r  = Math.floor((pointer.y - OY) / TILE);
         const hC = Math.floor(this.habX / TILE);
-        if (c === hC || c < 0 || c >= COLS || r < 0 || r >= ROWS) { this.previewTile = null; return; }
+        const hR = Math.floor((this.habY - OY) / TILE);
+        if ((c === hC && r === hR) || c < 0 || c >= COLS || r < 0 || r >= ROWS) { this.previewTile = null; return; }
+        // Wreck tile detection
+        if (this.wreckData) {
+            const wC = Math.floor(this.wreckData.x / TILE);
+            const wR = Math.floor((this.wreckData.y - OY) / TILE);
+            if (c === wC && r === wR) { this.previewTile = { c, r, demolish: true, wreck: true }; return; }
+        }
         const t = this.grid[c][r];
         if (t === T_ROAD) { this.previewTile = null; return; }
         const demolish = (t === T_CRATER || t === T_BOULDER);
@@ -747,10 +891,30 @@ class GameScene extends Phaser.Scene {
         const c  = Math.floor(wx / TILE);
         const r  = Math.floor((pointer.y - OY) / TILE);
         const hC = Math.floor(this.habX / TILE);
-        if (c === hC || c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
+        const hR = Math.floor((this.habY - OY) / TILE);
+        if ((c === hC && r === hR) || c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
         const t  = this.grid[c][r];
         const sx = c * TILE + TILE/2 - this.cameras.main.scrollX;
         const sy = OY + r * TILE + TILE/2;
+
+        // Wreck clearing
+        if (this.wreckData) {
+            const wC = Math.floor(this.wreckData.x / TILE);
+            const wR = Math.floor((this.wreckData.y - OY) / TILE);
+            if (c === wC && r === wR) {
+                this.demolishCounts['wreck'] = (this.demolishCounts['wreck'] || 0) + 1;
+                const cnt = this.demolishCounts['wreck'];
+                if (cnt >= 15) {
+                    this.wreckData = null;
+                    delete this.demolishCounts['wreck'];
+                    this.redrawPickups();
+                    this.popup(sx, sy, 'WRAK UPRZĄTNIĘTY', '#ffcc44');
+                } else {
+                    this.popup(sx, sy, `${cnt}/15`, '#ff8833');
+                }
+                return;
+            }
+        }
 
         if (t === T_CRATER || t === T_BOULDER) {
             const key = `${c}_${r}`;
@@ -780,6 +944,22 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: txt, y: sy-40, alpha: 0, duration: 900, ease: 'Power2', onComplete: () => txt.destroy() });
     }
 
+    setPauseVisible(visible) {
+        this.pauseGfx.setVisible(visible);
+        this.pauseTitleTxt.setVisible(visible);
+        this.pauseResumeTxt.setVisible(visible);
+        this.pauseNewTxt.setVisible(visible);
+        this.pauseMenuTxt.setVisible(visible);
+        this.pauseHintTxt.setVisible(visible);
+        if (visible) {
+            this.pauseGfx.clear();
+            this.pauseGfx.fillStyle(0x000010, 0.82); this.pauseGfx.fillRect(0, 0, W, H);
+            this.pauseGfx.lineStyle(1, 0x334488, 0.8);
+            this.pauseGfx.strokeRect(W/2 - 240, 180, 480, 300);
+            this.pauseGfx.fillStyle(0x000820, 0.95); this.pauseGfx.fillRect(W/2 - 240, 180, 480, 300);
+        }
+    }
+
     flashHint(msg, color) {
         this.hintTxt.setText(msg).setColor(color);
         this.time.delayedCall(2500, () => {
@@ -790,6 +970,27 @@ class GameScene extends Phaser.Scene {
     // ── Update ────────────────────────────────────────────────
     update(time, delta) {
         const dt = Math.min(delta / 1000, 0.05);
+
+        // ESC toggles pause
+        if (Phaser.Input.Keyboard.JustDown(this.escKey)) {
+            this.gamePaused = !this.gamePaused;
+            this.setPauseVisible(this.gamePaused);
+        }
+
+        if (this.gamePaused) {
+            const KC = Phaser.Input.Keyboard.KeyCodes;
+            if (Phaser.Input.Keyboard.JustDown(this.input.keyboard.addKey(KC.ENTER))) {
+                this.gamePaused = false; this.setPauseVisible(false);
+            }
+            if (Phaser.Input.Keyboard.JustDown(this.input.keyboard.addKey(KC.N))) {
+                this.scene.start('Game');
+            }
+            if (Phaser.Input.Keyboard.JustDown(this.input.keyboard.addKey(KC.M))) {
+                this.scene.start('Menu');
+            }
+            return;
+        }
+
         this.gameTime += dt;
 
         this.nightSpeed  = 26 + Math.floor(this.gameTime / 55) * 5;
@@ -797,6 +998,11 @@ class GameScene extends Phaser.Scene {
 
         this.turboActive = this.turboKey.isDown && this.fuel > 0;
         if (Phaser.Input.Keyboard.JustDown(this.fKey)) this.lightsOn = !this.lightsOn;
+        if (this.power <= 0 && this.lightsOn) {
+            this.lightsOn = false;
+            const sx = this.habX - this.cameras.main.scrollX;
+            this.popup(sx, this.habY - 52, '💡 ŚWIATŁA ZGASŁY', '#888844');
+        }
         if (Phaser.Input.Keyboard.JustDown(this.bKey) && this.batteriesCollected > 0) {
             this.batteriesCollected--;
             this.power = Math.min(100, this.power + 25);
@@ -852,7 +1058,8 @@ class GameScene extends Phaser.Scene {
                 dustIntensity = Math.min(1, dustIntensity + proximity * d.life);
             }
         }
-        const dustMod = dustIntensity > 0 ? (1 - dustIntensity * 0.85) : 1;
+        const dustMod = dustIntensity > 0 ? Math.max(0, 1 - dustIntensity * 2.2) : 1;
+        this.dustMod = dustMod;
         if (dustIntensity > 0) {
             this.hull = Phaser.Math.Clamp(this.hull - dustIntensity * 1.2 * dt, 0, 100);
         }
@@ -1010,6 +1217,20 @@ class GameScene extends Phaser.Scene {
         }
 
         if (this.oxygen <= 0 || this.hull <= 0) {
+            // Save entire grid for replay (flat array, column-major)
+            try {
+                const flat = [];
+                for (let c = 0; c < COLS; c++)
+                    for (let r = 0; r < ROWS; r++)
+                        flat.push(this.grid[c][r]);
+                localStorage.setItem('lunarRoad', JSON.stringify(flat));
+                localStorage.setItem('lunarWreck', JSON.stringify({
+                    x: Math.round(this.habX),
+                    y: Math.round(this.habY),
+                    angle: this.habAngle,
+                    cause: this.hull <= 0 ? 'hull' : 'oxygen'
+                }));
+            } catch(e) {}
             this.scene.start('GameOver', {
                 distance:   Math.floor((this.habX - this.startX) / 5.2),
                 roadBuilt:  this.roadBuilt,
@@ -1049,8 +1270,76 @@ class GameScene extends Phaser.Scene {
         if (this.habVX > topSpeed) this.habVX = Math.max(topSpeed, this.habVX - 180 * dt);
         else if (this.habVX < -(topSpeed * 0.3)) this.habVX = Math.min(-(topSpeed * 0.3), this.habVX + 180 * dt);
 
+        // ── Winch (grappling hook) ────────────────────────────
+        const lJustDown = Phaser.Input.Keyboard.JustDown(this.lKey);
+        const lHeld     = this.lKey.isDown;
+
+        if (lJustDown && !this.winchActive) {
+            // Find nearest crater or boulder in front of the habitat (forward hemisphere)
+            const hC  = Math.floor(this.habX / TILE);
+            const hR  = Math.floor((this.habY - OY) / TILE);
+            const fwdX = Math.cos(this.habAngle);
+            const fwdY = Math.sin(this.habAngle);
+            let bestDist = Infinity, bestX = null, bestY = null;
+            const WRANGE = 10;
+            for (let dc = -WRANGE; dc <= WRANGE; dc++) {
+                for (let dr = -WRANGE; dr <= WRANGE; dr++) {
+                    const tc = hC + dc, tr = hR + dr;
+                    if (tc < 0 || tc >= COLS || tr < 0 || tr >= ROWS) continue;
+                    if (dc === 0 && dr === 0) continue;
+                    const tt = this.grid[tc][tr];
+                    if (tt === T_CRATER || tt === T_BOULDER) {
+                        const wx = tc * TILE + TILE / 2;
+                        const wy = OY + tr * TILE + TILE / 2;
+                        const dx = wx - this.habX, dy = wy - this.habY;
+                        // Skip tiles behind the habitat (dot product with forward dir must be > 0)
+                        if (fwdX * dx + fwdY * dy <= 0) continue;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < bestDist) { bestDist = d; bestX = wx; bestY = wy; }
+                    }
+                }
+            }
+            const sx2 = this.habX - this.cameras.main.scrollX;
+            if (bestX !== null) {
+                this.winchActive = true;
+                this.winchAnchor = { x: bestX, y: bestY };
+                this.popup(sx2, this.habY - 52, '🪝 WYCIĄGARKA', '#aaddff');
+            } else {
+                this.popup(sx2, this.habY - 52, '⚠ BRAK ZACZEPU', '#ff8833');
+            }
+        }
+        if (!lHeld && this.winchActive) {
+            this.winchActive = false;
+            this.winchAnchor = null;
+        }
+        if (lHeld && this.winchActive && this.winchAnchor) {
+            const wdx = this.winchAnchor.x - this.habX;
+            const wdy = this.winchAnchor.y - this.habY;
+            const wdist = Math.sqrt(wdx * wdx + wdy * wdy);
+            if (wdist > 10) {
+                const pullSpeed = 38; // px/s — slow deliberate pull
+                this.habX += (wdx / wdist) * pullSpeed * dt;
+                this.habY += (wdy / wdist) * pullSpeed * dt;
+                this.habX = Phaser.Math.Clamp(this.habX, TILE / 2, COLS * TILE - TILE / 2);
+                this.habY = Phaser.Math.Clamp(this.habY, OY + TILE / 2, OY + ROWS * TILE - TILE / 2);
+                this.habVX = 0;
+                // Winch motor drains power heavily
+                this.power = Phaser.Math.Clamp(this.power - 22 * dt, 0, 100);
+                if (this.power <= 0) {
+                    this.winchActive = false;
+                    this.winchAnchor = null;
+                    const sx2 = this.habX - this.cameras.main.scrollX;
+                    this.popup(sx2, this.habY - 52, '⚡ WYCIĄGARKA — BRAK PRĄDU', '#ff4400');
+                }
+            } else {
+                this.winchActive = false;
+                this.winchAnchor = null;
+            }
+        }
+
         // ── Move along heading ────────────────────────────────
-        const spd = (inNight ? 0.35 : 1) * this.habVX;
+        if (this.winchActive) { /* position already updated above — skip normal move */ }
+        const spd = (inNight ? 0.35 : 1) * (this.winchActive ? 0 : this.habVX);
         const nx  = this.habX + Math.cos(this.habAngle) * spd * dt;
         const ny  = this.habY + Math.sin(this.habAngle) * spd * dt;
 
@@ -1061,11 +1350,21 @@ class GameScene extends Phaser.Scene {
             this.habX = nx;
             this.habY = ny;
         } else {
+            // Wreck impact damage
+            const hitWreck = this.isWreckTile(nc, nr) ||
+                             this.isWreckTile(nc, r)  ||
+                             this.isWreckTile(c,  nr);
             // Boulder impact damage
             const hitBoulder = this.isBoulder(nc, nr) ||
                                this.isBoulder(nc, r)  ||
                                this.isBoulder(c,  nr);
-            if (hitBoulder && Math.abs(spd) > 12) {
+            if (hitWreck && Math.abs(spd) > 8) {
+                const dmg = Math.round(Math.abs(spd) / 9);
+                this.hull = Math.max(0, this.hull - dmg);
+                this.habVX *= 0.15;
+                const sx = this.habX - this.cameras.main.scrollX;
+                this.popup(sx, this.habY - 35, `⚠ WRAK! -${dmg}% KADŁUB`, '#ffaa22');
+            } else if (hitBoulder && Math.abs(spd) > 12) {
                 const dmg = Math.round(Math.abs(spd) / 7);
                 this.hull = Math.max(0, this.hull - dmg);
                 this.habVX *= 0.12; // jarring stop
@@ -1174,14 +1473,41 @@ class GameScene extends Phaser.Scene {
     // ── Hover preview ─────────────────────────────────────────
     updatePreview() {
         const g = this.previewGfx; g.clear();
+
+        // ── Winch rope ────────────────────────────────────────
+        if (this.winchActive && this.winchAnchor) {
+            const camL   = this.cameras.main.scrollX;
+            // Rope origin = front of habitat (nose tip, +22px along heading)
+            const cosA   = Math.cos(this.habAngle);
+            const sinA   = Math.sin(this.habAngle);
+            const hsx    = this.habX + cosA * 22 - camL;
+            const hsy    = this.habY + sinA * 22;
+            const asx    = this.winchAnchor.x - camL;
+            const asy    = this.winchAnchor.y;
+            // rope
+            g.lineStyle(2, 0xaaddff, 0.85);
+            g.beginPath(); g.moveTo(hsx, hsy); g.lineTo(asx, asy); g.strokePath();
+            // anchor point indicator
+            g.lineStyle(2, 0x44aaff, 0.9);
+            g.strokeCircle(asx, asy, 10);
+            g.lineStyle(1, 0x88ccff, 0.7);
+            g.lineBetween(asx - 8, asy, asx + 8, asy);
+            g.lineBetween(asx, asy - 8, asx, asy + 8);
+            // tension arc — small bow in the rope to show it's taut
+            const mx = (hsx + asx) / 2;
+            const my = (hsy + asy) / 2;
+            g.fillStyle(0xaaddff, 0.5); g.fillCircle(mx, my, 3);
+        }
+
         if (!this.previewTile) return;
         const { c, r, demolish } = this.previewTile;
         const sx = c * TILE - this.cameras.main.scrollX;
         const sy = OY + r * TILE;
         if (demolish) {
-            const cnt = this.demolishCounts[`${c}_${r}`] || 0;
-            g.fillStyle(0xff6600, 0.20); g.fillRect(sx, sy, TILE, TILE);
-            g.lineStyle(2, 0xff8833, 0.90); g.strokeRect(sx, sy, TILE, TILE);
+            const isWreck = this.previewTile.wreck;
+            const cnt = isWreck ? (this.demolishCounts['wreck'] || 0) : (this.demolishCounts[`${c}_${r}`] || 0);
+            g.fillStyle(isWreck ? 0xffaa00 : 0xff6600, 0.20); g.fillRect(sx, sy, TILE, TILE);
+            g.lineStyle(2, isWreck ? 0xffcc44 : 0xff8833, 0.90); g.strokeRect(sx, sy, TILE, TILE);
             // remaining hits label
             const left = 15 - cnt;
             g.fillStyle(0xff4400, 0.30); g.fillRect(sx + TILE/2 - 8, sy + TILE/2 - 7, 16, 14);
@@ -1324,10 +1650,11 @@ class GameScene extends Phaser.Scene {
         g.lineStyle(1, 0x334466, 0.5); g.strokeRect(10, H-22, W-20, 13);
         g.fillStyle(0xffffff, 0.9); g.fillRect(10+(W-20)*frac-1, H-24, 3, 17);
 
-        const inDustHUD = (this.dustIntensity || 0) > 0;
+        const inDustHUD = (this.dustIntensity || 0) > 0.05;
+        const dustPct   = Math.round((this.dustMod !== undefined ? this.dustMod : 1) * 100);
         const solarLabel = this.solarFailure
             ? (oxyBlink ? '☀ ████ AWARIA PANELI ████' : `☀ PANELE OFF [${Math.ceil(this.solarFailTimer)}s]`)
-            : inDustHUD ? (oxyBlink ? '💨 PYŁ — PANELE 15%' : '💨 PYŁ METEORYTOWY')
+            : inDustHUD ? (oxyBlink ? `💨 PYŁ — PANELE ${dustPct}%` : '💨 PYŁ METEORYTOWY')
             : (inDark ? '⚡ AWARYJNE' : '☀️ SŁONECZNE');
         this.powerTxt.setText(`${solarLabel}: ${Math.ceil(this.power)}%`);
         this.powerTxt.setColor(this.solarFailure ? (oxyBlink ? '#ff4400' : '#ffaa00') : inDustHUD ? '#ccaa88' : '#ffffff');
