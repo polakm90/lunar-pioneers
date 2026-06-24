@@ -763,6 +763,11 @@ class GameScene extends Phaser.Scene {
                 g.fillStyle(0xffff44, 1);
                 g.fillTriangle(cx + 4, cy - 11, cx - 5, cy + 1, cx + 2, cy + 1);
                 g.fillTriangle(cx - 4, cy + 11, cx + 5, cy - 1, cx - 2, cy - 1);
+                // Reserve bar (bottom of tile)
+                const pres = (st.powerReserve !== undefined ? st.powerReserve : 1200) / 1200;
+                g.fillStyle(0x221100, 1); g.fillRect(wx+5, wy+TILE-6, TILE-10, 4);
+                const pbarColor = pres > 0.4 ? 0xddaa00 : pres > 0.15 ? 0xff9900 : 0xff2200;
+                g.fillStyle(pbarColor, 0.9); g.fillRect(wx+5, wy+TILE-6, Math.round((TILE-10)*pres), 4);
                 g.lineStyle(2, 0xaaaa33, 0.85); g.strokeRect(wx + 2, wy + 2, TILE - 4, TILE - 4);
             }
         }
@@ -800,6 +805,11 @@ class GameScene extends Phaser.Scene {
                 g.fillStyle(0x1a3366, 1);
                 g.fillRect(wx+2, cy-2, 4, 4);
                 g.fillRect(wx+TILE-6, cy-2, 4, 4);
+                // Reserve bar (bottom of tile)
+                const res = (st.oxygenReserve !== undefined ? st.oxygenReserve : 1200) / 1200;
+                g.fillStyle(0x112233, 1); g.fillRect(wx+5, wy+TILE-6, TILE-10, 4);
+                const barColor = res > 0.4 ? 0x2266cc : res > 0.15 ? 0xff9900 : 0xff2200;
+                g.fillStyle(barColor, 0.9); g.fillRect(wx+5, wy+TILE-6, Math.round((TILE-10)*res), 4);
                 g.lineStyle(2, 0x2266cc, 0.85); g.strokeRect(wx+2, wy+2, TILE-4, TILE-4);
             }
         }
@@ -1002,7 +1012,7 @@ class GameScene extends Phaser.Scene {
         const g = this.habitatGfx; g.clear();
         g.setPosition(this.habX, this.habY);
         g.setRotation(this.habAngle);
-        const inDark = this.habX < this.nightWorldX;
+        const inDark = (this.lastDarkness || 0) > 0.5;
 
         // shadow
         g.fillStyle(0x000000, 0.25); g.fillEllipse(3, 3, 52, 34);
@@ -1206,6 +1216,7 @@ class GameScene extends Phaser.Scene {
             underConstruction.buildClicks++;
             if (underConstruction.buildClicks >= 20) {
                 underConstruction.built = true;
+                if (underConstruction.id === 'oxygen_station') underConstruction.oxygenReserve = 1200;
                 this.redrawPickups();
                 this.popup(sx, sy, '✅ STACJA AKTYWNA!', '#44ff88');
             } else {
@@ -1479,14 +1490,29 @@ class GameScene extends Phaser.Scene {
         this.checkPlastic();
         this.updateTrail(dt);
 
-        // lightFraction: mirrors updateNightOverlay (0=full dark, 1=full day)
-        const _gap = this.habX - this.nightWorldX;
-        const _t   = Phaser.Math.Clamp(1 - _gap / 800, 0, 1);
-        const darkness = _t * _t * _t * (_t * (6 * _t - 15) + 10);
+        // lightFraction: cyclic day/night — NIGHT_BAND = DAY_BAND = 3120 px (~2 min each)
+        const _NB = 3120, _CYCLE = 6240, _GRAD = 800;
+        let darkness = 0;
+        for (let _k = 0; _k <= 4; _k++) {
+            const _nR = this.nightWorldX - _k * _CYCLE;
+            const _nL = _nR - _NB;
+            let _d = 0;
+            if (this.habX >= _nR) {
+                const _g = this.habX - _nR;
+                if (_g < _GRAD) { const _t = 1 - _g / _GRAD; _d = _t*_t*_t*(_t*(6*_t-15)+10); }
+            } else if (this.habX >= _nL) {
+                const _g = this.habX - _nL;
+                if (_g < _GRAD) { const _t = _g / _GRAD; _d = _t*_t*_t*(_t*(6*_t-15)+10); }
+                else _d = 1;
+            }
+            darkness = Math.max(darkness, _d);
+            if (_nR < this.habX - _NB - _GRAD) break;
+        }
+        this.lastDarkness = darkness;
         const lightFraction = 1 - darkness;
 
-        const inDark = lightFraction < 0.5;
-        const drain  = (1 - lightFraction) * 15 * (this.lightsOn ? 2 : 1);
+        const inDark = darkness > 0.5;
+        const drain  = (1 - lightFraction) * 7.5 * (this.lightsOn ? 2 : 1);
         const DUST_R = 4 * TILE;
         let dustIntensity = 0;
         for (const d of this.dustClouds) {
@@ -1511,13 +1537,51 @@ class GameScene extends Phaser.Scene {
         if (this.structures && this.structures.length > 0) {
             const hC = Math.floor(this.habX / TILE);
             const hR = Math.floor((this.habY - OY) / TILE);
+
+            // Passive: station reserves recharge in sunlight regardless of habitat position
+            for (const st of this.structures) {
+                if (!st.built) continue;
+                if (st.id === 'oxygen_station') {
+                    if (st.oxygenReserve === undefined) st.oxygenReserve = 1200;
+                    if (lightFraction > 0.3)
+                        st.oxygenReserve = Math.min(1200, st.oxygenReserve + 10 * dt);
+                }
+                if (st.id === 'charging_station') {
+                    if (st.powerReserve === undefined) st.powerReserve = 1200;
+                    if (lightFraction > 0.3)
+                        st.powerReserve = Math.min(1200, st.powerReserve + 10 * dt);
+                }
+            }
+
             for (const st of this.structures) {
                 if (!st.built || st.c !== hC || st.r !== hR) continue;
-                if (st.id === 'charging_station' && lightFraction > 0.3) {
-                    this.power = Math.min(100, this.power + 20 * dt);
+                if (st.id === 'charging_station') {
+                    if (st.powerReserve === undefined) st.powerReserve = 1200;
+                    if (lightFraction > 0.3) {
+                        // Day: direct solar supply to habitat
+                        this.power = Math.min(100, this.power + 20 * dt);
+                    } else {
+                        // Night: draw from reserve
+                        if (st.powerReserve > 0) {
+                            const draw = Math.min(20 * dt, st.powerReserve);
+                            this.power = Math.min(100, this.power + draw);
+                            st.powerReserve -= draw;
+                        }
+                    }
                 }
                 if (st.id === 'oxygen_station') {
-                    this.oxygen = Math.min(100, this.oxygen + 25 * dt);
+                    if (st.oxygenReserve === undefined) st.oxygenReserve = 1200;
+                    if (lightFraction > 0.3) {
+                        // Day: direct solar supply to habitat
+                        this.oxygen = Math.min(100, this.oxygen + 25 * dt);
+                    } else {
+                        // Night: draw from reserve tank
+                        if (st.oxygenReserve > 0) {
+                            const draw = Math.min(25 * dt, st.oxygenReserve);
+                            this.oxygen = Math.min(100, this.oxygen + draw);
+                            st.oxygenReserve -= draw;
+                        }
+                    }
                 }
                 if (st.id === 'fuel_station') {
                     this.fuel = Math.min(100, this.fuel + 20 * dt);
@@ -1707,7 +1771,7 @@ class GameScene extends Phaser.Scene {
         const hullMod  = 0.4 + 0.6 * (this.hull / 100);
         const driveMod = this.driveFailure ? 0.35 : 1;
         const topSpeed = (curType === T_ROAD ? 92 : 28) * (this.turboActive ? 1.9 : 1) * hullMod * driveMod;
-        const inNight  = this.habX < this.nightWorldX;
+        const inNight  = (this.lastDarkness || 0) > 0.5;
 
         // ── Rotate (A = turn up/left, D = turn down/right) ───
         const turnRate = 2.4; // rad/s
@@ -2055,10 +2119,24 @@ class GameScene extends Phaser.Scene {
         const g = this.nightGfx; g.clear();
 
         // darkness = how close the night is to the habitat (0=far/day, 1=engulfed)
-        const gap = this.habX - this.nightWorldX; // positive = habitat ahead of night
-        // smootherstep mapping: gap 800→full day, gap 0→full night
-        const t = Phaser.Math.Clamp(1 - gap / 800, 0, 1);
-        const darkness = t * t * t * (t * (6 * t - 15) + 10);
+        // cyclic day/night darkness (same formula as update())
+        const _NB2 = 3120, _CYCLE2 = 6240, _GRAD2 = 800;
+        let darkness = 0;
+        for (let _k = 0; _k <= 4; _k++) {
+            const _nR = this.nightWorldX - _k * _CYCLE2;
+            const _nL = _nR - _NB2;
+            let _d = 0;
+            if (this.habX >= _nR) {
+                const _g = this.habX - _nR;
+                if (_g < _GRAD2) { const _t = 1 - _g / _GRAD2; _d = _t*_t*_t*(_t*(6*_t-15)+10); }
+            } else if (this.habX >= _nL) {
+                const _g = this.habX - _nL;
+                if (_g < _GRAD2) { const _t = _g / _GRAD2; _d = _t*_t*_t*(_t*(6*_t-15)+10); }
+                else _d = 1;
+            }
+            darkness = Math.max(darkness, _d);
+            if (_nR < this.habX - _NB2 - _GRAD2) break;
+        }
         const di = this.dustIntensity || 0;
 
         if (darkness < 0.01 && di < 0.01) return;
@@ -2173,8 +2251,9 @@ class GameScene extends Phaser.Scene {
         g.fillStyle(0xff5522, 0.88); g.fillRect(W-295, 52, nsw, 16);
         g.lineStyle(1, 0x556677, 0.7); g.strokeRect(W-295, 52, 255, 16);
 
-        // bottom proximity bar
-        const gap  = this.habX - this.nightWorldX;
+        // bottom proximity bar — cyclic gap (wraps to next cycle after dawn)
+        let gap = this.habX - this.nightWorldX;
+        if (gap < -3120) gap += 6240; // switch to next-cycle distance after current night passes
         const frac = Phaser.Math.Clamp(gap / 700, 0, 1);
         g.fillStyle(0x0a0a1a, 0.72); g.fillRect(10, H-22, W-20, 13);
         g.fillStyle(frac > 0.4 ? 0x44aa44 : frac > 0 ? 0xaaaa22 : 0xcc2222, 0.82);
@@ -2216,7 +2295,14 @@ class GameScene extends Phaser.Scene {
         this.hullTxt.setText(`KADŁUB: ${Math.ceil(this.hull)}%${hullWarn}`);
         this.hullTxt.setColor(this.hull > 60 ? '#ffaa44' : this.hull > 30 ? '#ff6622' : '#ff2200');
         this.distTxt.setText(`📏 ${Math.floor((this.habX-this.startX)/5.2)} m`);
-        this.nightTxt.setText(`🌑 noc: +${Math.floor(this.nightSpeed)} m/s`);
+        const _rawGap = this.habX - this.nightWorldX;
+        const _CYCLE = 6240, _NB = 3120;
+        const _pos = ((-_rawGap) % _CYCLE + _CYCLE) % _CYCLE; // 0=przy nocy, _NB=przy świcie, _CYCLE=przy kolejnej nocy
+        if (_pos < _NB) {
+            this.nightTxt.setText(`🌅 świt ${Math.floor((_NB - _pos) / 5.2)}m za tobą`);
+        } else {
+            this.nightTxt.setText(`🌑 noc ${Math.floor((_CYCLE - _pos) / 5.2)}m za tobą`);
+        }
 
         if (this.driveFailure) {
             const tick = Math.floor(this.gameTime * 6) % 2 === 0;
@@ -2228,7 +2314,13 @@ class GameScene extends Phaser.Scene {
             const tick = Math.floor(this.gameTime * 5) % 2 === 0;
             this.warnTxt.setText(tick ? '💨 TLEN UCIEKA — PRZYWRÓĆ ZASILANIE!' : '⚡ WYJDŹ Z CIENIA!');
         } else if (inDark) {
-            this.warnTxt.setText(Math.floor(this.gameTime*4)%2===0 ? '⚡ PANELE W CIEMNOŚCI — TRACISZ MOC!' : '');
+            const dawnDist = this.habX - (this.nightWorldX - 3120); // decreases → 0 as dawn approaches
+            const nearDawn = dawnDist > 0 && dawnDist < 800;
+            if (nearDawn) {
+                this.warnTxt.setText(Math.floor(this.gameTime*4)%2===0 ? '🌅 ŚWIT NADCHODZI — JESZCZE CHWILA!' : '');
+            } else {
+                this.warnTxt.setText(Math.floor(this.gameTime*4)%2===0 ? '⚡ PANELE W CIEMNOŚCI — TRACISZ MOC!' : '');
+            }
         } else if (gap < 380) {
             this.warnTxt.setText(`${gap < 150 ? '⛔' : '⚠️'} NOC ${Math.floor(gap)}m — BUDUJ DROGĘ!`);
         } else {
