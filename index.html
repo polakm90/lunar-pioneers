@@ -159,6 +159,9 @@ class GameScene extends Phaser.Scene {
         this.solarFailCooldown  = 50 + Math.random() * 50; // first failure 50-100 s
         this.batteriesCollected  = 0;
         this.repairKitsCollected = 0;
+        this.scrapCollected      = 0;
+        this.glassCollected      = 0;
+        this.plasticCollected    = 0;
         this.roadBuilt  = 0;
         this.nightWorldX = -264; // habX (216) - 480 initial gap
         this.nightSpeed  = 26;
@@ -195,8 +198,12 @@ class GameScene extends Phaser.Scene {
                 // Discard wreck if it's within 8 tiles of the start — would block the player
                 this.wreckData = (wd && wd.x > 8 * TILE) ? wd : null;
             } catch(e) { this.wreckData = null; }
+            try {
+                this.structures = JSON.parse(localStorage.getItem('lunarStructures') || '[]');
+            } catch(e) { this.structures = []; }
         } else {
             this.wreckData = null;
+            this.structures = [];
             for (let c = 0; c < 9; c++)
                 for (let r = 0; r < ROWS; r++) this.grid[c][r] = T_ROAD;
             this.generateObstacles();
@@ -235,6 +242,42 @@ class GameScene extends Phaser.Scene {
             if (cands.length) {
                 const r = cands[Math.floor(Math.random() * cands.length)];
                 this.fuelCanisters.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Scrap piles ───────────────────────────────────────
+        this.scrapPiles = [];
+        for (let c = 15; c < COLS - 5; c += 10 + Math.floor(Math.random() * 6)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.scrapPiles.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Glass shards ──────────────────────────────────────
+        this.glassShards = [];
+        for (let c = 18; c < COLS - 5; c += 14 + Math.floor(Math.random() * 8)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.glassShards.push({ c, r, collected: false });
+            }
+        }
+
+        // ── Plastic debris ────────────────────────────────────
+        this.plasticDebris = [];
+        for (let c = 12; c < COLS - 5; c += 13 + Math.floor(Math.random() * 7)) {
+            const cands = [];
+            for (let r = 0; r < ROWS; r++)
+                if (this.grid[c][r] === T_EMPTY) cands.push(r);
+            if (cands.length) {
+                const r = cands[Math.floor(Math.random() * cands.length)];
+                this.plasticDebris.push({ c, r, collected: false });
             }
         }
 
@@ -283,7 +326,7 @@ class GameScene extends Phaser.Scene {
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
         this.nightTxt = this.add.text(W-24, 42, '', { ...ts, color: '#ff8844', align: 'right' })
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
-        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo  F=światła  B=bateria  R=naprawa  L=wyciągarka', {
+        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo  F=światła  B=bat  R=naprawa  L=wyciągarka  SPACJA=buduj', {
             fontSize: '13px', fontFamily: 'monospace', color: '#4444aa'
         }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(21);
         this.warnTxt  = this.add.text(W/2, 86, '', {
@@ -296,6 +339,44 @@ class GameScene extends Phaser.Scene {
         this.hullTxt = this.add.text(24, 120, '', {
             fontSize: '12px', fontFamily: 'monospace', color: '#ffaa44'
         }).setScrollFactor(0).setDepth(21);
+
+        // ── Build system ──────────────────────────────────────
+        this.BUILD_ITEMS = [
+            {
+                id: 'charging_station',
+                name: 'Stacja Ładowania',
+                desc: 'Ładuje baterię w dzień (+20%/s)',
+                cost: { glass: 5, plastic: 3, scrap: 2 }
+            },
+            {
+                id: 'oxygen_station',
+                name: 'Stacja Tlenowa',
+                desc: 'Uzupełnia tlen zawsze (+25%/s)',
+                cost: { glass: 3, plastic: 4, scrap: 1 }
+            },
+            {
+                id: 'fuel_station',
+                name: 'Stacja Paliwowa',
+                desc: 'Uzupełnia paliwo rakietowe (+20%/s)',
+                cost: { glass: 2, plastic: 3, scrap: 4 }
+            }
+        ];
+        this.buildGfx = this.add.graphics().setScrollFactor(0).setDepth(40);
+        const bmts = { fontSize: '16px', fontFamily: 'monospace', color: '#eeeeff', stroke: '#000022', strokeThickness: 2 };
+        const bmtsItem = { fontSize: '14px', fontFamily: 'monospace', color: '#ffee88', stroke: '#000022', strokeThickness: 2 };
+        const bmtsDesc = { fontSize: '12px', fontFamily: 'monospace', color: '#99aacc' };
+        this.buildMenuTitleTxt = this.add.text(W/2, H/2 - 80, '⚒ MENU BUDOWANIA  [SPACJA=zamknij  ESC=anuluj]', bmts)
+            .setOrigin(0.5, 0).setScrollFactor(0).setDepth(41).setVisible(false);
+        this.buildItemTxts = this.BUILD_ITEMS.map((item, i) => {
+            const costStr = `💎${item.cost.glass || 0} 🧩${item.cost.plastic || 0} ⚙${item.cost.scrap || 0}`;
+            // Text starts to the right of the 48px graphic preview (bx+15+48+12 = bx+75 = W/2-145)
+            return this.add.text(W/2 - 145, H/2 - 30 + i * 80,
+                `[${i + 1}]  ${item.name}\n       ${costStr}\n       ${item.desc}`,
+                bmtsItem).setOrigin(0, 0).setScrollFactor(0).setDepth(41).setVisible(false);
+        });
+        this.buildModeTxt = this.add.text(W/2, H - 36, '', {
+            fontSize: '13px', fontFamily: 'monospace', color: '#88ffcc', stroke: '#001100', strokeThickness: 2
+        }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(41).setVisible(false);
 
         this.input.on('pointerdown', this.onPointerDown, this);
         this.input.on('pointermove', this.onPointerMove, this);
@@ -310,11 +391,18 @@ class GameScene extends Phaser.Scene {
         this.rKey = this.input.keyboard.addKey(KC.R);
         this.lKey = this.input.keyboard.addKey(KC.L);
         this.escKey = this.input.keyboard.addKey(KC.ESC);
+        this.spaceKey = this.input.keyboard.addKey(KC.SPACE);
+        this.oneKey   = this.input.keyboard.addKey(KC.ONE);
+        this.twoKey   = this.input.keyboard.addKey(KC.TWO);
+        this.threeKey = this.input.keyboard.addKey(KC.THREE);
 
         // ── Pause overlay ─────────────────────────────────────
         this.gamePaused  = false;
         this.winchActive = false;
         this.winchAnchor = null;
+        this.buildMenuOpen = false;
+        this.buildMode     = null;   // null or { id: 'charging_station' }
+        this.structures    = this.structures || [];
         this.pauseGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
         const pts = { fontSize: '28px', fontFamily: 'monospace', color: '#ffffff', stroke: '#000000', strokeThickness: 3 };
         const ptsSmall = { fontSize: '18px', fontFamily: 'monospace', color: '#ffff88', stroke: '#000000', strokeThickness: 2 };
@@ -574,6 +662,178 @@ class GameScene extends Phaser.Scene {
 
             // Border
             g.lineStyle(1, 0xff6633, 0.8 * pulse); g.strokeRect(wx - 9, wy - 13, 18, 26);
+        }
+
+        // Scrap piles (grey metallic chunks)
+        for (const s of this.scrapPiles) {
+            if (s.collected) continue;
+            const wx = s.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + s.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 1.8 + s.c * 0.9) * 0.25 + 0.75;
+            g.fillStyle(0x888899, 0.15 * pulse); g.fillCircle(wx, wy, 18);
+            // irregular metal chunks
+            g.fillStyle(0x555566, 1); g.fillRect(wx - 10, wy - 6, 14, 8);
+            g.fillStyle(0x778899, 1); g.fillRect(wx - 6, wy - 10, 9, 6);
+            g.fillStyle(0x99aabb, 1); g.fillRect(wx - 2, wy + 2, 12, 5);
+            // metallic highlights
+            g.fillStyle(0xbbccdd, 0.7); g.fillRect(wx - 9, wy - 5, 5, 2);
+            g.fillStyle(0xbbccdd, 0.5); g.fillRect(wx - 5, wy - 9, 4, 2);
+            g.lineStyle(1, 0xaabbcc, 0.6 * pulse);
+            g.strokeRect(wx - 10, wy - 10, 20, 18);
+        }
+
+        // Glass shards (cyan/blue translucent diamonds)
+        for (const s of this.glassShards) {
+            if (s.collected) continue;
+            const wx = s.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + s.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 4 + s.c * 1.7) * 0.35 + 0.65;
+            g.fillStyle(0x88ddff, 0.18 * pulse); g.fillCircle(wx, wy, 20);
+            // diamond shards
+            g.fillStyle(0x44aacc, 0.85);
+            g.fillTriangle(wx, wy - 12, wx + 9, wy, wx, wy + 8);
+            g.fillStyle(0x66ccee, 0.9);
+            g.fillTriangle(wx - 9, wy - 4, wx + 4, wy - 8, wx - 3, wy + 10);
+            g.fillStyle(0x99eeff, 0.7);
+            g.fillTriangle(wx + 3, wy - 6, wx + 11, wy + 4, wx + 2, wy + 9);
+            // internal reflections
+            g.fillStyle(0xffffff, 0.5 * pulse); g.fillRect(wx - 7, wy - 3, 3, 2);
+            g.fillStyle(0xffffff, 0.4 * pulse); g.fillRect(wx + 4, wy - 5, 2, 3);
+            g.lineStyle(1, 0xaaeeff, 0.7 * pulse);
+            g.strokeCircle(wx, wy, 13);
+        }
+
+        // Plastic debris (yellow/orange fragments)
+        for (const s of this.plasticDebris) {
+            if (s.collected) continue;
+            const wx = s.c * TILE + TILE/2;
+            if (wx < camL - TILE || wx > camL + W + TILE) continue;
+            const wy = OY + s.r * TILE + TILE/2;
+            const pulse = Math.sin(this.gameTime * 2.5 + s.c * 1.2) * 0.3 + 0.7;
+            g.fillStyle(0xffcc00, 0.15 * pulse); g.fillCircle(wx, wy, 18);
+            // plastic fragments
+            g.fillStyle(0xdd8800, 1); g.fillRect(wx - 10, wy - 5, 12, 7);
+            g.fillStyle(0xffbb22, 1); g.fillRect(wx - 2, wy - 9, 11, 6);
+            g.fillStyle(0xff9900, 1); g.fillRect(wx - 7, wy + 3, 13, 5);
+            // plastic sheen
+            g.fillStyle(0xffeeaa, 0.6 * pulse); g.fillRect(wx - 8, wy - 4, 4, 2);
+            g.fillStyle(0xffeeaa, 0.4 * pulse); g.fillRect(wx, wy - 8, 5, 2);
+            g.lineStyle(1, 0xffcc44, 0.65 * pulse);
+            g.strokeRect(wx - 11, wy - 10, 21, 18);
+        }
+
+        // Charging stations
+        for (const st of this.structures) {
+            if (st.id !== 'charging_station') continue;
+            const wx = st.c * TILE;
+            const wy = OY + st.r * TILE;
+            if (wx < camL - TILE || wx + TILE > camL + W + TILE) continue;
+            const cx = wx + TILE / 2, cy = wy + TILE / 2;
+            if (!st.built) {
+                // Under construction — grey scaffold
+                const prog = st.buildClicks / 20;
+                g.fillStyle(0x222233, 1); g.fillRect(wx + 2, wy + 2, TILE - 4, TILE - 4);
+                g.fillStyle(0x444455, 0.7); g.fillRect(wx + 5, wy + 5, TILE - 10, TILE - 10);
+                // Partial yellow strips based on progress
+                g.fillStyle(0x886600, 0.8);
+                g.fillRect(wx + 5, wy + 5, TILE - 10, 3);
+                g.fillRect(wx + 5, wy + TILE - 8, TILE - 10, 3);
+                if (prog > 0.3) { g.fillRect(wx + 5, wy + 5, 3, TILE - 10); }
+                if (prog > 0.6) { g.fillRect(wx + TILE - 8, wy + 5, 3, TILE - 10); }
+                // Grey bolt
+                g.fillStyle(0x778877, 0.7);
+                g.fillTriangle(cx+4, cy-11, cx-5, cy+1, cx+2, cy+1);
+                g.fillTriangle(cx-4, cy+11, cx+5, cy-1, cx-2, cy-1);
+                // Progress bar at bottom
+                g.fillStyle(0x222233, 1); g.fillRect(wx + 5, wy + TILE - 6, TILE - 10, 4);
+                g.fillStyle(0xffaa00, 0.9); g.fillRect(wx + 5, wy + TILE - 6, Math.round((TILE - 10) * prog), 4);
+                // Dashed border
+                g.lineStyle(1, 0x556655, 0.9); g.strokeRect(wx + 2, wy + 2, TILE - 4, TILE - 4);
+            } else {
+                // Active station
+                g.fillStyle(0x333344, 1); g.fillRect(wx + 2, wy + 2, TILE - 4, TILE - 4);
+                g.fillStyle(0x555566, 1); g.fillRect(wx + 5, wy + 5, TILE - 10, TILE - 10);
+                g.fillStyle(0xffcc00, 1);
+                g.fillRect(wx + 5, wy + 5, TILE - 10, 3);
+                g.fillRect(wx + 5, wy + TILE - 8, TILE - 10, 3);
+                g.fillRect(wx + 5, wy + 5, 3, TILE - 10);
+                g.fillRect(wx + TILE - 8, wy + 5, 3, TILE - 10);
+                g.fillStyle(0xffff44, 1);
+                g.fillTriangle(cx + 4, cy - 11, cx - 5, cy + 1, cx + 2, cy + 1);
+                g.fillTriangle(cx - 4, cy + 11, cx + 5, cy - 1, cx - 2, cy - 1);
+                g.lineStyle(2, 0xaaaa33, 0.85); g.strokeRect(wx + 2, wy + 2, TILE - 4, TILE - 4);
+            }
+        }
+
+        // Oxygen stations
+        for (const st of this.structures) {
+            if (st.id !== 'oxygen_station') continue;
+            const wx = st.c * TILE;
+            const wy = OY + st.r * TILE;
+            if (wx < camL - TILE || wx + TILE > camL + W + TILE) continue;
+            const cx = wx + TILE/2, cy = wy + TILE/2;
+            if (!st.built) {
+                const prog = st.buildClicks / 20;
+                g.fillStyle(0x060e1a, 1); g.fillRect(wx+2, wy+2, TILE-4, TILE-4);
+                g.fillStyle(0x111c33, 0.7); g.fillRect(wx+5, wy+5, TILE-10, TILE-10);
+                g.lineStyle(3, 0x1a3355, 0.7); g.strokeCircle(cx, cy, 14);
+                g.fillStyle(0x152040, 0.8); g.fillCircle(cx, cy, 11);
+                g.fillStyle(0x445566, 0.7); g.fillCircle(cx, cy, 4);
+                g.fillStyle(0x223344, 1); g.fillRect(wx+5, wy+TILE-6, TILE-10, 4);
+                g.fillStyle(0x2255aa, 0.9); g.fillRect(wx+5, wy+TILE-6, Math.round((TILE-10)*prog), 4);
+                g.lineStyle(1, 0x1a3355, 0.8); g.strokeRect(wx+2, wy+2, TILE-4, TILE-4);
+            } else {
+                const pulse = Math.sin(this.gameTime * 2.2 + st.c) * 0.3 + 0.7;
+                g.fillStyle(0x0a1a33, 1); g.fillRect(wx+2, wy+2, TILE-4, TILE-4);
+                g.fillStyle(0x112255, 1); g.fillRect(wx+5, wy+5, TILE-10, TILE-10);
+                // glow
+                g.fillStyle(0x2255cc, 0.12 * pulse); g.fillCircle(cx, cy, 20);
+                // pipe ring
+                g.lineStyle(3, 0x2266cc, 1); g.strokeCircle(cx, cy, 14);
+                // inner tank
+                g.fillStyle(0x224488, 1); g.fillCircle(cx, cy, 11);
+                g.fillStyle(0x3377cc, 1); g.fillCircle(cx, cy, 8);
+                g.fillStyle(0x88ddff, pulse); g.fillCircle(cx, cy, 4);
+                // pipe stubs
+                g.fillStyle(0x1a3366, 1);
+                g.fillRect(wx+2, cy-2, 4, 4);
+                g.fillRect(wx+TILE-6, cy-2, 4, 4);
+                g.lineStyle(2, 0x2266cc, 0.85); g.strokeRect(wx+2, wy+2, TILE-4, TILE-4);
+            }
+        }
+
+        // Fuel stations
+        for (const st of this.structures) {
+            if (st.id !== 'fuel_station') continue;
+            const wx = st.c * TILE, wy = OY + st.r * TILE;
+            if (wx < camL - TILE || wx + TILE > camL + W + TILE) continue;
+            const cx = wx + TILE/2, cy = wy + TILE/2;
+            if (!st.built) {
+                const prog = st.buildClicks / 20;
+                g.fillStyle(0x150500, 1); g.fillRect(wx+2, wy+2, TILE-4, TILE-4);
+                g.fillStyle(0x2a0d00, 0.7); g.fillRect(wx+5, wy+5, TILE-10, TILE-10);
+                g.fillStyle(0x331100, 0.8); g.fillRect(cx-6, cy-10, 12, 20);
+                g.fillStyle(0x221100, 1); g.fillRect(wx+5, wy+TILE-6, TILE-10, 4);
+                g.fillStyle(0xff6600, 0.9); g.fillRect(wx+5, wy+TILE-6, Math.round((TILE-10)*prog), 4);
+                g.lineStyle(1, 0x441100, 0.8); g.strokeRect(wx+2, wy+2, TILE-4, TILE-4);
+            } else {
+                const pulse = Math.sin(this.gameTime * 2.8 + st.c * 1.1) * 0.3 + 0.7;
+                g.fillStyle(0x220800, 1); g.fillRect(wx+2, wy+2, TILE-4, TILE-4);
+                g.fillStyle(0x441100, 1); g.fillRect(wx+5, wy+5, TILE-10, TILE-10);
+                g.fillStyle(0xff4400, 0.10 * pulse); g.fillCircle(cx, cy, 20);
+                // canister body
+                g.fillStyle(0x882200, 1); g.fillRect(cx-8, cy-12, 16, 24);
+                g.fillStyle(0xcc3300, 1); g.fillRect(cx-6, cy-10, 12, 20);
+                // danger stripes
+                g.fillStyle(0xffaa00, 1);
+                g.fillRect(cx-6, cy-3, 12, 3); g.fillRect(cx-6, cy+3, 12, 3);
+                // cap + nozzle
+                g.fillStyle(0x661a00, 1); g.fillRect(cx-8, cy-12, 16, 4);
+                g.fillStyle(0x555555, 1); g.fillRect(cx-2, cy-16, 4, 5);
+                g.lineStyle(2, 0xff6622, 0.85); g.strokeRect(wx+2, wy+2, TILE-4, TILE-4);
+            }
         }
 
         // Wreck of previous habitat
@@ -874,6 +1134,13 @@ class GameScene extends Phaser.Scene {
         const hC = Math.floor(this.habX / TILE);
         const hR = Math.floor((this.habY - OY) / TILE);
         if ((c === hC && r === hR) || c < 0 || c >= COLS || r < 0 || r >= ROWS) { this.previewTile = null; return; }
+        // Build mode: show placement preview
+        if (this.buildMode) {
+            const canPlace = this.grid[c][r] === T_ROAD &&
+                             !this.structures.some(s => s.c === c && s.r === r);
+            this.previewTile = { c, r, demolish: false, buildMode: true, canPlace };
+            return;
+        }
         // Wreck tile detection
         if (this.wreckData) {
             const wC = Math.floor(this.wreckData.x / TILE);
@@ -887,6 +1154,19 @@ class GameScene extends Phaser.Scene {
     }
 
     onPointerDown(pointer) {
+        // Build menu item click (screen-space, before world coords)
+        if (this.buildMenuOpen) {
+            const bx = W/2 - 220, by = H/2 - 95;
+            for (let i = 0; i < this.BUILD_ITEMS.length; i++) {
+                const iy = by + 43 + i * 80;
+                if (pointer.x >= bx+10 && pointer.x <= bx+430 &&
+                    pointer.y >= iy    && pointer.y <= iy + 70) {
+                    this._selectBuildItem(i);
+                }
+            }
+            return;
+        }
+
         const wx = pointer.x + this.cameras.main.scrollX;
         const c  = Math.floor(wx / TILE);
         const r  = Math.floor((pointer.y - OY) / TILE);
@@ -896,6 +1176,44 @@ class GameScene extends Phaser.Scene {
         const t  = this.grid[c][r];
         const sx = c * TILE + TILE/2 - this.cameras.main.scrollX;
         const sy = OY + r * TILE + TILE/2;
+
+        // Build mode placement
+        if (this.buildMode) {
+            if (this.grid[c][r] !== T_ROAD) {
+                this.popup(sx, sy, '⛔ TYLKO NA DRODZE', '#ff4400');
+                return;
+            }
+            if (this.structures.some(s => s.c === c && s.r === r)) {
+                this.popup(sx, sy, '⛔ ZAJĘTE', '#ff4400');
+                return;
+            }
+            const item = this.BUILD_ITEMS.find(i => i.id === this.buildMode.id);
+            this.glassCollected   -= item.cost.glass   || 0;
+            this.plasticCollected -= item.cost.plastic || 0;
+            this.scrapCollected   -= item.cost.scrap   || 0;
+            this.structures.push({ id: this.buildMode.id, c, r, built: false, buildClicks: 0 });
+            this.buildMode = null;
+            this.buildModeTxt.setVisible(false);
+            this.redrawPickups();
+            this.popup(sx, sy, '🔨 BUDOWA — kliknij 20× żeby ukończyć', '#ffcc44');
+            return;
+        }
+
+        // Structure build progress (click 20× to complete)
+        const underConstruction = this.structures &&
+            this.structures.find(s => s.c === c && s.r === r && !s.built);
+        if (underConstruction) {
+            underConstruction.buildClicks++;
+            if (underConstruction.buildClicks >= 20) {
+                underConstruction.built = true;
+                this.redrawPickups();
+                this.popup(sx, sy, '✅ STACJA AKTYWNA!', '#44ff88');
+            } else {
+                this.popup(sx, sy, `🔨 ${underConstruction.buildClicks}/20`, '#ffcc44');
+                this.redrawPickups();
+            }
+            return;
+        }
 
         // Wreck clearing
         if (this.wreckData) {
@@ -960,6 +1278,97 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    _selectBuildItem(i) {
+        const item = this.BUILD_ITEMS[i];
+        if (!item) return;
+        const canAfford = this.glassCollected   >= (item.cost.glass   || 0) &&
+                          this.plasticCollected >= (item.cost.plastic || 0) &&
+                          this.scrapCollected   >= (item.cost.scrap   || 0);
+        if (canAfford) {
+            this.buildMode = { id: item.id };
+            this.buildMenuOpen = false;
+            this.setBuildMenuVisible(false);
+            this.buildModeTxt.setText(`📍 Tryb budowania: ${item.name} — kliknij kratkę DROGI  [SPACJA=anuluj]`);
+            this.buildModeTxt.setVisible(true);
+        } else {
+            const sx = this.habX - this.cameras.main.scrollX;
+            this.popup(sx, this.habY - 52, `⚠ Potrzebujesz 💎${item.cost.glass||0} 🧩${item.cost.plastic||0} ⚙${item.cost.scrap||0}`, '#ff4400');
+        }
+    }
+
+    setBuildMenuVisible(visible) {
+        this.buildGfx.setVisible(visible);
+        this.buildMenuTitleTxt.setVisible(visible);
+        this.buildItemTxts.forEach(t => t.setVisible(visible));
+        if (visible) {
+            this.buildGfx.clear();
+            const g = this.buildGfx;
+            const bx = W/2 - 220, by = H/2 - 95;
+            const bh = 50 + this.BUILD_ITEMS.length * 80;
+            // Panel background
+            g.fillStyle(0x050520, 0.92); g.fillRect(bx, by, 440, bh);
+            g.lineStyle(2, 0x4444aa, 1);  g.strokeRect(bx, by, 440, bh);
+            g.lineStyle(1, 0x222255, 0.8); g.strokeRect(bx+2, by+2, 436, bh-4);
+            // Separator after title
+            g.lineStyle(1, 0x4444aa, 0.6); g.lineBetween(bx+10, by+38, bx+430, by+38);
+
+            // Per-item: graphic preview + clickable area highlight
+            this.BUILD_ITEMS.forEach((item, i) => {
+                const iy = by + 43 + i * 80;
+                // Clickable row border
+                g.lineStyle(1, 0x333388, 0.9); g.strokeRect(bx+10, iy, 420, 70);
+                g.fillStyle(0x0a0a30, 0.5);    g.fillRect(bx+10, iy, 420, 70);
+
+                // Station graphic preview at left of row (48×48)
+                if (item.id === 'charging_station') {
+                    const px = bx + 20, py = iy + 11, pw = TILE;
+                    g.fillStyle(0x333344, 1); g.fillRect(px+2, py+2, pw-4, pw-4);
+                    g.fillStyle(0x555566, 1); g.fillRect(px+5, py+5, pw-10, pw-10);
+                    g.fillStyle(0xffcc00, 1);
+                    g.fillRect(px+5,    py+5,    pw-10, 3);
+                    g.fillRect(px+5,    py+pw-8, pw-10, 3);
+                    g.fillRect(px+5,    py+5,    3, pw-10);
+                    g.fillRect(px+pw-8, py+5,    3, pw-10);
+                    const lcx = px + pw/2, lcy = py + pw/2;
+                    g.fillStyle(0xffff44, 1);
+                    g.fillTriangle(lcx+4, lcy-11, lcx-5, lcy+1, lcx+2, lcy+1);
+                    g.fillTriangle(lcx-4, lcy+11, lcx+5, lcy-1, lcx-2, lcy-1);
+                    g.lineStyle(2, 0xaaaa33, 0.85); g.strokeRect(px+2, py+2, pw-4, pw-4);
+                }
+                if (item.id === 'oxygen_station') {
+                    const px = bx + 20, py = iy + 11, pw = TILE;
+                    const ocx = px + pw/2, ocy = py + pw/2;
+                    g.fillStyle(0x0a1a33, 1); g.fillRect(px+2, py+2, pw-4, pw-4);
+                    g.fillStyle(0x112255, 1); g.fillRect(px+5, py+5, pw-10, pw-10);
+                    g.lineStyle(3, 0x2255aa, 1); g.strokeCircle(ocx, ocy, 14);
+                    g.fillStyle(0x224488, 1); g.fillCircle(ocx, ocy, 11);
+                    g.fillStyle(0x3366bb, 1); g.fillCircle(ocx, ocy, 8);
+                    g.fillStyle(0x88ddff, 1); g.fillCircle(ocx-3, ocy, 3);
+                    g.fillStyle(0x88ddff, 1); g.fillCircle(ocx+4, ocy-3, 2);
+                    g.fillStyle(0x1a3366, 1);
+                    g.fillRect(px+2, ocy-2, 4, 4); g.fillRect(px+pw-6, ocy-2, 4, 4);
+                    g.lineStyle(2, 0x2255aa, 0.85); g.strokeRect(px+2, py+2, pw-4, pw-4);
+                }
+                if (item.id === 'fuel_station') {
+                    const px = bx + 20, py = iy + 11, pw = TILE;
+                    const fcx = px + pw/2, fcy = py + pw/2;
+                    g.fillStyle(0x220800, 1); g.fillRect(px+2, py+2, pw-4, pw-4);
+                    g.fillStyle(0x441100, 1); g.fillRect(px+5, py+5, pw-10, pw-10);
+                    // canister body
+                    g.fillStyle(0x882200, 1); g.fillRect(fcx-8, fcy-12, 16, 24);
+                    g.fillStyle(0xcc3300, 1); g.fillRect(fcx-6, fcy-10, 12, 20);
+                    // danger stripes
+                    g.fillStyle(0xffaa00, 1);
+                    g.fillRect(fcx-6, fcy-3, 12, 3); g.fillRect(fcx-6, fcy+3, 12, 3);
+                    // cap + nozzle
+                    g.fillStyle(0x661a00, 1); g.fillRect(fcx-8, fcy-12, 16, 4);
+                    g.fillStyle(0x555555, 1); g.fillRect(fcx-2, fcy-16, 4, 5);
+                    g.lineStyle(2, 0xff6622, 0.85); g.strokeRect(px+2, py+2, pw-4, pw-4);
+                }
+            });
+        }
+    }
+
     flashHint(msg, color) {
         this.hintTxt.setText(msg).setColor(color);
         this.time.delayedCall(2500, () => {
@@ -971,10 +1380,17 @@ class GameScene extends Phaser.Scene {
     update(time, delta) {
         const dt = Math.min(delta / 1000, 0.05);
 
-        // ESC toggles pause
+        // ESC: cancel build mode first, then pause
         if (Phaser.Input.Keyboard.JustDown(this.escKey)) {
-            this.gamePaused = !this.gamePaused;
-            this.setPauseVisible(this.gamePaused);
+            if (this.buildMode || this.buildMenuOpen) {
+                this.buildMode = null;
+                this.buildMenuOpen = false;
+                this.setBuildMenuVisible(false);
+                this.buildModeTxt.setVisible(false);
+            } else {
+                this.gamePaused = !this.gamePaused;
+                this.setPauseVisible(this.gamePaused);
+            }
         }
 
         if (this.gamePaused) {
@@ -995,6 +1411,26 @@ class GameScene extends Phaser.Scene {
 
         this.nightSpeed  = 26 + Math.floor(this.gameTime / 55) * 5;
         this.nightWorldX += this.nightSpeed * dt;
+
+        // ── Build menu (SPACE) ─────────────────────────────────
+        if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+            if (this.buildMode) {
+                this.buildMode = null;
+                this.buildModeTxt.setVisible(false);
+            } else {
+                this.buildMenuOpen = !this.buildMenuOpen;
+                this.setBuildMenuVisible(this.buildMenuOpen);
+            }
+        }
+        if (this.buildMenuOpen) {
+            const menuKeys = [this.oneKey, this.twoKey, this.threeKey];
+            for (let i = 0; i < this.BUILD_ITEMS.length; i++) {
+                if (menuKeys[i] && Phaser.Input.Keyboard.JustDown(menuKeys[i])) {
+                    this._selectBuildItem(i);
+                }
+            }
+            return;
+        }
 
         this.turboActive = this.turboKey.isDown && this.fuel > 0;
         if (Phaser.Input.Keyboard.JustDown(this.fKey)) this.lightsOn = !this.lightsOn;
@@ -1038,6 +1474,9 @@ class GameScene extends Phaser.Scene {
         this.checkPickups();
         this.checkRepairKits();
         this.checkFuelCanisters();
+        this.checkScrap();
+        this.checkGlass();
+        this.checkPlastic();
         this.updateTrail(dt);
 
         // lightFraction: mirrors updateNightOverlay (0=full dark, 1=full day)
@@ -1067,6 +1506,24 @@ class GameScene extends Phaser.Scene {
 
         this.dustIntensity = dustIntensity;
         this.power   = Phaser.Math.Clamp(this.power + (regen - drain) * dt, 0, 100);
+
+        // Structure effects
+        if (this.structures && this.structures.length > 0) {
+            const hC = Math.floor(this.habX / TILE);
+            const hR = Math.floor((this.habY - OY) / TILE);
+            for (const st of this.structures) {
+                if (!st.built || st.c !== hC || st.r !== hR) continue;
+                if (st.id === 'charging_station' && lightFraction > 0.3) {
+                    this.power = Math.min(100, this.power + 20 * dt);
+                }
+                if (st.id === 'oxygen_station') {
+                    this.oxygen = Math.min(100, this.oxygen + 25 * dt);
+                }
+                if (st.id === 'fuel_station') {
+                    this.fuel = Math.min(100, this.fuel + 20 * dt);
+                }
+            }
+        }
 
         // Fuel: burned by turbo only, no passive regen
         if (this.turboActive) {
@@ -1224,6 +1681,7 @@ class GameScene extends Phaser.Scene {
                     for (let r = 0; r < ROWS; r++)
                         flat.push(this.grid[c][r]);
                 localStorage.setItem('lunarRoad', JSON.stringify(flat));
+                localStorage.setItem('lunarStructures', JSON.stringify(this.structures || []));
                 localStorage.setItem('lunarWreck', JSON.stringify({
                     x: Math.round(this.habX),
                     y: Math.round(this.habY),
@@ -1435,6 +1893,48 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    checkScrap() {
+        for (const s of this.scrapPiles) {
+            if (s.collected) continue;
+            const dx = s.c * TILE + TILE/2 - this.habX;
+            const dy = OY + s.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                s.collected = true;
+                this.scrapCollected++;
+                const sx = s.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + s.r * TILE + TILE/2, '⚙ ZŁOM', '#aabbcc');
+            }
+        }
+    }
+
+    checkGlass() {
+        for (const s of this.glassShards) {
+            if (s.collected) continue;
+            const dx = s.c * TILE + TILE/2 - this.habX;
+            const dy = OY + s.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                s.collected = true;
+                this.glassCollected++;
+                const sx = s.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + s.r * TILE + TILE/2, '💎 SZKŁO', '#88eeff');
+            }
+        }
+    }
+
+    checkPlastic() {
+        for (const s of this.plasticDebris) {
+            if (s.collected) continue;
+            const dx = s.c * TILE + TILE/2 - this.habX;
+            const dy = OY + s.r * TILE + TILE/2 - this.habY;
+            if (dx*dx + dy*dy < 50*50) {
+                s.collected = true;
+                this.plasticCollected++;
+                const sx = s.c * TILE + TILE/2 - this.cameras.main.scrollX;
+                this.popup(sx, OY + s.r * TILE + TILE/2, '🧩 PLASTIK', '#ffcc44');
+            }
+        }
+    }
+
     // ── Wheel trail ───────────────────────────────────────────
     updateTrail(dt) {
         this.trailTimer += dt;
@@ -1511,6 +2011,38 @@ class GameScene extends Phaser.Scene {
             // remaining hits label
             const left = 15 - cnt;
             g.fillStyle(0xff4400, 0.30); g.fillRect(sx + TILE/2 - 8, sy + TILE/2 - 7, 16, 14);
+        } else if (this.previewTile.buildMode) {
+            if (this.previewTile.canPlace) {
+                const pcx = sx + TILE/2, pcy = sy + TILE/2;
+                const bid = this.buildMode ? this.buildMode.id : '';
+                if (bid === 'charging_station') {
+                    g.fillStyle(0x444455, 0.55); g.fillRect(sx+2, sy+2, TILE-4, TILE-4);
+                    g.fillStyle(0x667788, 0.45); g.fillRect(sx+5, sy+5, TILE-10, TILE-10);
+                    g.fillStyle(0x998833, 0.6);
+                    g.fillRect(sx+5, sy+5, TILE-10, 3); g.fillRect(sx+5, sy+TILE-8, TILE-10, 3);
+                    g.fillRect(sx+5, sy+5, 3, TILE-10); g.fillRect(sx+TILE-8, sy+5, 3, TILE-10);
+                    g.fillStyle(0xaabb99, 0.75);
+                    g.fillTriangle(pcx+4, pcy-11, pcx-5, pcy+1, pcx+2, pcy+1);
+                    g.fillTriangle(pcx-4, pcy+11, pcx+5, pcy-1, pcx-2, pcy-1);
+                } else if (bid === 'oxygen_station') {
+                    g.fillStyle(0x0a1520, 0.55); g.fillRect(sx+2, sy+2, TILE-4, TILE-4);
+                    g.fillStyle(0x1a2a44, 0.45); g.fillRect(sx+5, sy+5, TILE-10, TILE-10);
+                    g.lineStyle(3, 0x1a3355, 0.65); g.strokeCircle(pcx, pcy, 14);
+                    g.fillStyle(0x1a2d4a, 0.8); g.fillCircle(pcx, pcy, 11);
+                    g.fillStyle(0x336688, 0.7); g.fillCircle(pcx, pcy, 6);
+                } else if (bid === 'fuel_station') {
+                    g.fillStyle(0x1a0800, 0.55); g.fillRect(sx+2, sy+2, TILE-4, TILE-4);
+                    g.fillStyle(0x2a1100, 0.45); g.fillRect(sx+5, sy+5, TILE-10, TILE-10);
+                    g.fillStyle(0x553300, 0.7); g.fillRect(pcx-6, pcy-10, 12, 20);
+                    g.fillStyle(0x884400, 0.6); g.fillRect(pcx-4, pcy-8, 8, 16);
+                    g.fillStyle(0x886622, 0.5);
+                    g.fillRect(pcx-4, pcy-2, 8, 2); g.fillRect(pcx-4, pcy+3, 8, 2);
+                }
+                g.lineStyle(2, 0x44ffcc, 0.9); g.strokeRect(sx, sy, TILE, TILE);
+            } else {
+                g.fillStyle(0xff2200, 0.22); g.fillRect(sx, sy, TILE, TILE);
+                g.lineStyle(2, 0xff4400, 0.9); g.strokeRect(sx, sy, TILE, TILE);
+            }
         } else {
             g.fillStyle(0x88ff44, 0.22); g.fillRect(sx, sy, TILE, TILE);
             g.lineStyle(2, 0x88ff44, 0.88); g.strokeRect(sx, sy, TILE, TILE);
@@ -1661,14 +2193,15 @@ class GameScene extends Phaser.Scene {
         const lightsLabel  = this.lightsOn ? '💡ON [×2 dr]' : '💡OFF [F=wł]';
         const batLabel     = `🔋${this.batteriesCollected} [B=użyj]`;
         const repairLabel  = `🔧${this.repairKitsCollected} [R=napraw]`;
+        const matsLabel    = `⚙${this.scrapCollected} 💎${this.glassCollected} 🧩${this.plasticCollected}`;
         const driveLabel   = this.driveFailure
             ? (oxyBlink ? `⚙ AWARIA NAPĘDU [${Math.ceil(this.driveFailTimer)}s]` : '⚙ ████ NAPĘD ████')
             : null;
         const fuelLabel = `⛽${Math.ceil(this.fuel)}%`;
         this.resTxt.setText(driveLabel ||
             (this.turboActive
-                ? `🔥 TURBO [${fuelLabel} -O₂]  ${batLabel}  ${repairLabel}  ${lightsLabel}`
-                : `${fuelLabel} [SHIFT=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}`));
+                ? `🔥 TURBO [${fuelLabel} -O₂]  ${batLabel}  ${repairLabel}  ${lightsLabel}  ${matsLabel}`
+                : `${fuelLabel} [SHIFT=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}  ${matsLabel}`));
         this.resTxt.setColor(this.driveFailure ? (oxyBlink ? '#ffcc00' : '#ff8800') : '#ffee44');
         let oxyWarn = '';
         if (this.o2Failure)      oxyWarn = oxyBlink ? ' ⚠ AWARIA!' : ` [${Math.ceil(this.o2FailTimer)}s]`;
