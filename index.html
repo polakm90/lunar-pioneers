@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head>
+<head> n
     <meta charset="utf-8">
     <title>Lunar Pioneers — Escape the Night</title>
     <style>
@@ -76,22 +76,28 @@ class MenuScene extends Phaser.Scene {
             });
         });
 
-        const btn = this.add.text(W/2, 472, '[ NACIŚNIJ ENTER ABY ROZPOCZĄĆ ]', {
-            fontSize: '22px', fontFamily: 'monospace',
-            color: '#ffff44', stroke: '#888800', strokeThickness: 2
-        }).setOrigin(0.5);
-        this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.35 }, duration: 700, yoyo: true, repeat: -1 });
-        this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
-
-        // Replay last road option
         const hasSaved = !!localStorage.getItem('lunarRoad');
         if (hasSaved) {
-            const btn2 = this.add.text(W/2, 530, '[ BACKSPACE — JEDŹ PO OSTATNIEJ TRASIE ]', {
+            const btn = this.add.text(W/2, 472, '[ ENTER — JEDŹ PO ZAPISANEJ TRASIE ]', {
+                fontSize: '22px', fontFamily: 'monospace',
+                color: '#ffff44', stroke: '#888800', strokeThickness: 2
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.35 }, duration: 700, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game', { replayRoad: true }));
+
+            const btn2 = this.add.text(W/2, 530, '[ BACKSPACE — ZACZNIJ OD NOWA ]', {
                 fontSize: '15px', fontFamily: 'monospace',
-                color: '#88bbff', stroke: '#001144', strokeThickness: 2
+                color: '#888899', stroke: '#111122', strokeThickness: 2
             }).setOrigin(0.5);
             this.tweens.add({ targets: btn2, alpha: { from: 0.9, to: 0.35 }, duration: 900, yoyo: true, repeat: -1 });
-            this.input.keyboard.on('keydown-BACKSPACE', () => this.scene.start('Game', { replayRoad: true }));
+            this.input.keyboard.on('keydown-BACKSPACE', () => this.scene.start('Game'));
+        } else {
+            const btn = this.add.text(W/2, 472, '[ ENTER — ROZPOCZNIJ GRĘ ]', {
+                fontSize: '22px', fontFamily: 'monospace',
+                color: '#ffff44', stroke: '#888800', strokeThickness: 2
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.35 }, duration: 700, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
         }
     }
 }
@@ -128,11 +134,26 @@ class GameOverScene extends Phaser.Scene {
         ].forEach(([t, c, y]) => {
             this.add.text(W/2, y, t, { fontSize: '19px', fontFamily: 'monospace', color: c }).setOrigin(0.5);
         });
-        const btn = this.add.text(W/2, 455, '[ NACIŚNIJ ENTER ABY SPRÓBOWAĆ PONOWNIE ]', {
-            fontSize: '18px', fontFamily: 'monospace', color: '#ffff44'
-        }).setOrigin(0.5);
-        this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.3 }, duration: 700, yoyo: true, repeat: -1 });
-        this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
+        const hasSaved = !!localStorage.getItem('lunarRoad');
+        if (hasSaved) {
+            const btn = this.add.text(W/2, 450, '[ ENTER — JEDŹ PO TEJ SAMEJ TRASIE ]', {
+                fontSize: '18px', fontFamily: 'monospace', color: '#ffff44'
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.3 }, duration: 700, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game', { replayRoad: true }));
+
+            const btn2 = this.add.text(W/2, 492, '[ BACKSPACE — ZACZNIJ OD NOWA ]', {
+                fontSize: '15px', fontFamily: 'monospace', color: '#888899'
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn2, alpha: { from: 0.9, to: 0.3 }, duration: 900, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-BACKSPACE', () => this.scene.start('Game'));
+        } else {
+            const btn = this.add.text(W/2, 455, '[ ENTER — SPRÓBUJ PONOWNIE ]', {
+                fontSize: '18px', fontFamily: 'monospace', color: '#ffff44'
+            }).setOrigin(0.5);
+            this.tweens.add({ targets: btn, alpha: { from: 1, to: 0.3 }, duration: 700, yoyo: true, repeat: -1 });
+            this.input.keyboard.on('keydown-ENTER', () => this.scene.start('Game'));
+        }
     }
 }
 
@@ -325,25 +346,25 @@ class GameScene extends Phaser.Scene {
 
 
         // ── UI text ───────────────────────────────────────────
-        const ts = { fontSize: '15px', fontFamily: 'monospace', color: '#ddddff' };
-        this.powerTxt = this.add.text(24, 18, '', ts).setScrollFactor(0).setDepth(21);
-        this.resTxt   = this.add.text(24, 42, '', { ...ts, color: '#ffee44' }).setScrollFactor(0).setDepth(21);
+        const ts = { fontSize: '13px', fontFamily: 'monospace', color: '#ddddff', stroke: '#000022', strokeThickness: 2 };
+        this.powerTxt = this.add.text(26, 54, '', ts).setScrollFactor(0).setDepth(22);
+        this.resTxt   = this.add.text(26, 76, '', { ...ts, color: '#ffee44' }).setScrollFactor(0).setDepth(22);
         this.distTxt  = this.add.text(W-24, 18, '', { ...ts, color: '#88ffbb', align: 'right' })
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
         this.nightTxt = this.add.text(W-24, 42, '', { ...ts, color: '#ff8844', align: 'right' })
                             .setOrigin(1, 0).setScrollFactor(0).setDepth(21);
-        this.hintTxt  = this.add.text(W/2, H-14, 'W=jedź  S=ham  A/D=skręt  SHIFT=turbo  F=światła  B=bat  R=naprawa  L=wyciągarka  SPACJA=buduj', {
-            fontSize: '13px', fontFamily: 'monospace', color: '#4444aa'
-        }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(21);
         this.warnTxt  = this.add.text(W/2, 86, '', {
             fontSize: '20px', fontFamily: 'monospace',
             color: '#ff5533', stroke: '#000000', strokeThickness: 3
         }).setOrigin(0.5).setScrollFactor(0).setDepth(22);
-        this.oxygenTxt = this.add.text(24, 102, '', {
-            fontSize: '12px', fontFamily: 'monospace', color: '#66ccff'
-        }).setScrollFactor(0).setDepth(21);
-        this.hullTxt = this.add.text(24, 120, '', {
-            fontSize: '12px', fontFamily: 'monospace', color: '#ffaa44'
+        this.oxygenTxt = this.add.text(26, 91, '', {
+            fontSize: '11px', fontFamily: 'monospace', color: '#66ccff', stroke: '#000022', strokeThickness: 2
+        }).setScrollFactor(0).setDepth(22);
+        this.hullTxt = this.add.text(26, 111, '', {
+            fontSize: '11px', fontFamily: 'monospace', color: '#ffaa44', stroke: '#000022', strokeThickness: 2
+        }).setScrollFactor(0).setDepth(22);
+        this.resourcesTxt = this.add.text(24, 130, '', {
+            fontSize: '12px', fontFamily: 'monospace', color: '#aabbcc'
         }).setScrollFactor(0).setDepth(21);
 
         // ── Build system ──────────────────────────────────────
@@ -369,13 +390,13 @@ class GameScene extends Phaser.Scene {
             {
                 id: 'antenna',
                 name: 'Antena',
-                desc: 'Wzywa lądownik z zaopatrzeniem [E]',
+                desc: 'Pozwala wezwać lądownik z zaopatrzeniem',
                 cost: { scrap: 8, plastic: 2 }
             },
             {
                 id: 'laser_cannon',
                 name: 'Działko Laserowe',
-                desc: 'Niszczy meteoryty w zasięgu 6 kratek. Ładuje się ze słońca.',
+                desc: 'Niszczy meteoryty w zasięgu 6 kratek',
                 cost: { scrap: 1 }
             }
         ];
@@ -383,14 +404,23 @@ class GameScene extends Phaser.Scene {
         const bmts = { fontSize: '16px', fontFamily: 'monospace', color: '#eeeeff', stroke: '#000022', strokeThickness: 2 };
         const bmtsItem = { fontSize: '14px', fontFamily: 'monospace', color: '#ffee88', stroke: '#000022', strokeThickness: 2 };
         const bmtsDesc = { fontSize: '12px', fontFamily: 'monospace', color: '#99aacc' };
-        this.buildMenuTitleTxt = this.add.text(W/2, H/2 - 80, '⚒ MENU BUDOWANIA  [SPACJA=zamknij  ESC=anuluj]', bmts)
+        this.buildMenuTitleTxt = this.add.text(W/2, H/2 - 80, '⚒ MENU BUDOWANIA', bmts)
             .setOrigin(0.5, 0).setScrollFactor(0).setDepth(41).setVisible(false);
         this.buildItemTxts = this.BUILD_ITEMS.map((item, i) => {
-            const costStr = `💎${item.cost.glass || 0} 🧩${item.cost.plastic || 0} ⚙${item.cost.scrap || 0}`;
-            // Text starts to the right of the 48px graphic preview (bx+15+48+12 = bx+75 = W/2-145)
             return this.add.text(W/2 - 145, H/2 - 30 + i * 80,
-                `[${i + 1}]  ${item.name}\n       ${costStr}\n       ${item.desc}`,
+                item.name,
                 bmtsItem).setOrigin(0, 0).setScrollFactor(0).setDepth(41).setVisible(false);
+        });
+        this.buildDescTxts = this.BUILD_ITEMS.map((item, i) => {
+            return this.add.text(W/2 - 145, H/2 - 14 + i * 80,
+                item.desc,
+                bmtsDesc).setOrigin(0, 0).setScrollFactor(0).setDepth(41).setVisible(false);
+        });
+        this.buildCostTxts = this.BUILD_ITEMS.map((item, i) => {
+            const costStr = `⚙${item.cost.scrap || 0} 💎${item.cost.glass || 0} 🧩${item.cost.plastic || 0}`;
+            return this.add.text(0, 0, costStr,
+                { fontSize: '13px', fontFamily: 'monospace', color: '#aaddff', stroke: '#000022', strokeThickness: 2 })
+                .setOrigin(1, 0).setScrollFactor(0).setDepth(41).setVisible(false);
         });
         this.buildModeTxt = this.add.text(W/2, H - 36, '', {
             fontSize: '13px', fontFamily: 'monospace', color: '#88ffcc', stroke: '#001100', strokeThickness: 2
@@ -414,6 +444,8 @@ class GameScene extends Phaser.Scene {
         this.oneKey   = this.input.keyboard.addKey(KC.ONE);
         this.twoKey   = this.input.keyboard.addKey(KC.TWO);
         this.threeKey = this.input.keyboard.addKey(KC.THREE);
+        this.fourKey  = this.input.keyboard.addKey(KC.FOUR);
+        this.fiveKey  = this.input.keyboard.addKey(KC.FIVE);
 
         // ── Pause overlay ─────────────────────────────────────
         this.gamePaused  = false;
@@ -1477,6 +1509,7 @@ class GameScene extends Phaser.Scene {
         g.fillCircle(ox, oy, 16);
         g.fillStyle(0xffffff, darkness * 0.50);
         g.fillCircle(ox, oy, 8);
+
     }
 
     // ── Input ─────────────────────────────────────────────────
@@ -1509,7 +1542,8 @@ class GameScene extends Phaser.Scene {
     onPointerDown(pointer) {
         // Build menu item click (screen-space, before world coords)
         if (this.buildMenuOpen) {
-            const bx = W/2 - 220, by = H/2 - 95;
+            const bh = 50 + this.BUILD_ITEMS.length * 80;
+            const bx = W/2 - 220, by = Math.max(10, Math.floor((H - bh) / 2));
             for (let i = 0; i < this.BUILD_ITEMS.length; i++) {
                 const iy = by + 43 + i * 80;
                 if (pointer.x >= bx+10 && pointer.x <= bx+430 &&
@@ -1707,11 +1741,17 @@ class GameScene extends Phaser.Scene {
         this.buildGfx.setVisible(visible);
         this.buildMenuTitleTxt.setVisible(visible);
         this.buildItemTxts.forEach(t => t.setVisible(visible));
+        this.buildDescTxts.forEach(t => t.setVisible(visible));
+        this.buildCostTxts.forEach(t => t.setVisible(visible));
         if (visible) {
             this.buildGfx.clear();
             const g = this.buildGfx;
-            const bx = W/2 - 220, by = H/2 - 95;
             const bh = 50 + this.BUILD_ITEMS.length * 80;
+            const bx = W/2 - 220, by = Math.max(10, Math.floor((H - bh) / 2));
+            this.buildMenuTitleTxt.setPosition(W/2, by + 10);
+            this.buildItemTxts.forEach((t, i) => t.setPosition(W/2 - 145, by + 53 + i * 80));
+            this.buildDescTxts.forEach((t, i) => t.setPosition(W/2 - 145, by + 71 + i * 80));
+            this.buildCostTxts.forEach((t, i) => t.setPosition(bx + 428, by + 50 + i * 80));
             // Panel background
             g.fillStyle(0x050520, 0.92); g.fillRect(bx, by, 440, bh);
             g.lineStyle(2, 0x4444aa, 1);  g.strokeRect(bx, by, 440, bh);
@@ -1722,9 +1762,12 @@ class GameScene extends Phaser.Scene {
             // Per-item: graphic preview + clickable area highlight
             this.BUILD_ITEMS.forEach((item, i) => {
                 const iy = by + 43 + i * 80;
+                const canAfford = this.scrapCollected   >= (item.cost.scrap   || 0) &&
+                                  this.glassCollected   >= (item.cost.glass   || 0) &&
+                                  this.plasticCollected >= (item.cost.plastic || 0);
                 // Clickable row border
-                g.lineStyle(1, 0x333388, 0.9); g.strokeRect(bx+10, iy, 420, 70);
-                g.fillStyle(0x0a0a30, 0.5);    g.fillRect(bx+10, iy, 420, 70);
+                g.lineStyle(1, canAfford ? 0x333388 : 0x222233, 0.9); g.strokeRect(bx+10, iy, 420, 70);
+                g.fillStyle(0x0a0a30, 0.5); g.fillRect(bx+10, iy, 420, 70);
 
                 // Station graphic preview at left of row (48×48)
                 if (item.id === 'charging_station') {
@@ -1782,15 +1825,43 @@ class GameScene extends Phaser.Scene {
                     g.fillStyle(0x8899aa, 0.8); g.fillRect(acx-14, acy-20, 28, 4);
                     g.lineStyle(2, 0x44aaff, 0.85); g.strokeRect(px+2, py+2, pw-4, pw-4);
                 }
+                if (item.id === 'laser_cannon') {
+                    const px = bx + 20, py = iy + 11, pw = TILE;
+                    const lcx = px + pw/2, lcy = py + pw/2;
+                    // tło
+                    g.fillStyle(0x0a1a0a, 1); g.fillRect(px+2, py+2, pw-4, pw-4);
+                    g.fillStyle(0x112211, 1); g.fillRect(px+5, py+5, pw-10, pw-10);
+                    // podstawa
+                    g.fillStyle(0x334433, 1); g.fillRect(lcx-12, lcy+6, 24, 8);
+                    g.fillStyle(0x445544, 1); g.fillRect(lcx-9,  lcy+2, 18, 8);
+                    // okrągła głowica
+                    g.fillStyle(0x556655, 1); g.fillCircle(lcx, lcy, 10);
+                    g.fillStyle(0x778877, 1); g.fillCircle(lcx, lcy, 7);
+                    // lufa pod kątem 45° (górny prawy róg) — prostokąt 4×14 obrócony o 45°
+                    // narożniki: dir=(0.707,−0.707), perp=(0.707,0.707), len=14, half-w=2
+                    g.fillStyle(0x99bb99, 1);
+                    g.fillPoints([
+                        { x: lcx + 1, y: lcy + 1 },
+                        { x: lcx - 1, y: lcy - 1 },
+                        { x: lcx + 9,  y: lcy - 11 },
+                        { x: lcx + 11, y: lcy - 9  }
+                    ], true);
+                    // highlight końcówki
+                    g.fillStyle(0xaaccaa, 1); g.fillCircle(lcx + 10, lcy - 10, 2);
+                    // poświata energii
+                    g.fillStyle(0x00ff44, 0.25); g.fillCircle(lcx, lcy, 12);
+                    g.lineStyle(2, 0x22dd44, 0.85); g.strokeRect(px+2, py+2, pw-4, pw-4);
+                }
+
+
+                // Gray-out overlay when can't afford
+                if (!canAfford) {
+                    const px = bx + 20, py = iy + 11;
+                    g.fillStyle(0x000010, 0.68); g.fillRect(px, py, TILE, TILE);
+                    g.fillStyle(0x000010, 0.35); g.fillRect(bx+10, iy, 420, 70);
+                }
             });
         }
-    }
-
-    flashHint(msg, color) {
-        this.hintTxt.setText(msg).setColor(color);
-        this.time.delayedCall(2500, () => {
-            this.hintTxt.setText('W=do przodu  S=hamulec  A=góra  D=dół  SHIFT=turbo  F=światła  B=bateria→moc').setColor('#4444aa');
-        });
     }
 
     // ── Update ────────────────────────────────────────────────
@@ -1824,6 +1895,21 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (this.buildMenuOpen) {
+            // ── Build menu (SPACE to close) ────────────────────
+            if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+                this.buildMenuOpen = false;
+                this.setBuildMenuVisible(false);
+            }
+            const menuKeys = [this.oneKey, this.twoKey, this.threeKey, this.fourKey, this.fiveKey];
+            for (let i = 0; i < this.BUILD_ITEMS.length; i++) {
+                if (menuKeys[i] && Phaser.Input.Keyboard.JustDown(menuKeys[i])) {
+                    this._selectBuildItem(i);
+                }
+            }
+            return;
+        }
+
         this.gameTime += dt;
 
         this.nightSpeed  = 26 + Math.floor(this.gameTime / 55) * 5;
@@ -1838,15 +1924,6 @@ class GameScene extends Phaser.Scene {
                 this.buildMenuOpen = !this.buildMenuOpen;
                 this.setBuildMenuVisible(this.buildMenuOpen);
             }
-        }
-        if (this.buildMenuOpen) {
-            const menuKeys = [this.oneKey, this.twoKey, this.threeKey];
-            for (let i = 0; i < this.BUILD_ITEMS.length; i++) {
-                if (menuKeys[i] && Phaser.Input.Keyboard.JustDown(menuKeys[i])) {
-                    this._selectBuildItem(i);
-                }
-            }
-            return;
         }
 
         this.turboActive = this.turboKey.isDown && this.fuel > 0;
@@ -2343,7 +2420,8 @@ class GameScene extends Phaser.Scene {
 
         const hullMod  = 0.4 + 0.6 * (this.hull / 100);
         const driveMod = this.driveFailure ? 0.35 : 1;
-        const topSpeed = (curType === T_ROAD ? 92 : 28) * (this.turboActive ? 1.9 : 1) * hullMod * driveMod;
+        const powerMod = this.power > 0 ? 1 : 0;
+        const topSpeed = (curType === T_ROAD ? 92 : 28) * (this.turboActive ? 1.9 : 1) * hullMod * driveMod * powerMod;
         const inNight  = (this.lastDarkness || 0) > 0.5;
 
         // ── Rotate (A = turn up/left, D = turn down/right) ───
@@ -2453,7 +2531,7 @@ class GameScene extends Phaser.Scene {
 
         // ── Move along heading ────────────────────────────────
         if (this.winchActive) { /* position already updated above — skip normal move */ }
-        const spd = (inNight ? 0.35 : 1) * (this.winchActive ? 0 : this.habVX);
+        const spd = (this.winchActive ? 0 : this.habVX);
         const nx  = this.habX + Math.cos(this.habAngle) * spd * dt;
         const ny  = this.habY + Math.sin(this.habAngle) * spd * dt;
 
@@ -2805,8 +2883,8 @@ class GameScene extends Phaser.Scene {
         const oxyBlink = Math.floor(this.gameTime * 4) % 2 === 0;
 
         // left panel
-        g.fillStyle(0x000015, 0.82); g.fillRect(10, 10, 295, 148);
-        g.lineStyle(1, 0x334466, 0.7); g.strokeRect(10, 10, 295, 148);
+        g.fillStyle(0x000015, 0.82); g.fillRect(10, 10, 295, 150);
+        g.lineStyle(1, 0x334466, 0.7); g.strokeRect(10, 10, 295, 150);
         // power bar
         const pw = (this.power/100)*255;
         const pc = this.power > 60 ? 0x33ee44 : this.power > 30 ? 0xffaa22 : 0xff3333;
@@ -2820,42 +2898,42 @@ class GameScene extends Phaser.Scene {
         // fuel bar
         const fw = (this.fuel / 100) * 255;
         const turboBg = this.turboActive ? 0x331100 : 0x181818;
-        g.fillStyle(turboBg, 1); g.fillRect(20, 74, 255, 10);
+        g.fillStyle(turboBg, 1); g.fillRect(20, 74, 255, 14);
         const fuelFill = this.turboActive ? 0xff6600
             : this.fuel > 60 ? 0xaa4400 : this.fuel > 25 ? 0x883300 : 0xff2200;
         g.fillStyle(fuelFill, this.turboActive ? 1 : 0.7);
-        g.fillRect(20, 74, fw, 10);
+        g.fillRect(20, 74, fw, 14);
         if (this.turboActive) {
             const shimX = 20 + ((this.gameTime * 180) % Math.max(1, fw));
-            g.fillStyle(0xffcc88, 0.4); g.fillRect(shimX, 74, 18, 10);
+            g.fillStyle(0xffcc88, 0.4); g.fillRect(shimX, 74, 18, 14);
         }
         if (this.fuel < 20) {
             g.fillStyle(0xff4400, Math.sin(this.gameTime * 8) * 0.3 + 0.3);
-            g.fillRect(20, 74, fw, 10);
+            g.fillRect(20, 74, fw, 14);
         }
-        g.lineStyle(1, 0x664422, 0.8); g.strokeRect(20, 74, 255, 10);
+        g.lineStyle(1, 0x664422, 0.8); g.strokeRect(20, 74, 255, 14);
 
         // oxygen bar
         const ow = Math.round((this.oxygen / 100) * 255);
         const oc = this.oxygen > 60 ? 0x22bbff : this.oxygen > 25 ? 0xffaa00 : 0xff2222;
-        g.fillStyle(0x061520, 1); g.fillRect(20, 90, 255, 10);
-        g.fillStyle(oc, 1); g.fillRect(20, 90, ow, 10);
+        g.fillStyle(0x061520, 1); g.fillRect(20, 90, 255, 14);
+        g.fillStyle(oc, 1); g.fillRect(20, 90, ow, 14);
         if (this.oxygen < 25) {
             g.fillStyle(0x00ffff, Math.sin(this.gameTime * 8) * 0.35 + 0.15);
-            g.fillRect(20, 90, ow, 10);
+            g.fillRect(20, 90, ow, 14);
         }
-        g.lineStyle(1, 0x224466, 0.8); g.strokeRect(20, 90, 255, 10);
+        g.lineStyle(1, 0x224466, 0.8); g.strokeRect(20, 90, 255, 14);
 
         // hull bar
         const hw = Math.round((this.hull / 100) * 255);
         const hc = this.hull > 60 ? 0xff9922 : this.hull > 30 ? 0xff5500 : 0xff1111;
-        g.fillStyle(0x1a0800, 1); g.fillRect(20, 132, 255, 10);
-        g.fillStyle(hc, 1); g.fillRect(20, 132, hw, 10);
+        g.fillStyle(0x1a0800, 1); g.fillRect(20, 110, 255, 14);
+        g.fillStyle(hc, 1); g.fillRect(20, 110, hw, 14);
         if (this.hull < 30) {
             g.fillStyle(0xff6600, Math.sin(this.gameTime * 7) * 0.35 + 0.15);
-            g.fillRect(20, 132, hw, 10);
+            g.fillRect(20, 110, hw, 14);
         }
-        g.lineStyle(1, 0x663300, 0.8); g.strokeRect(20, 132, 255, 10);
+        g.lineStyle(1, 0x663300, 0.8); g.strokeRect(20, 110, 255, 14);
 
         // right panel
         g.fillStyle(0x000015, 0.82); g.fillRect(W-305, 10, 295, 78);
@@ -2876,26 +2954,19 @@ class GameScene extends Phaser.Scene {
         g.fillStyle(0xffffff, 0.9); g.fillRect(10+(W-20)*frac-1, H-24, 3, 17);
 
         const inDustHUD = (this.dustIntensity || 0) > 0.05;
-        const dustPct   = Math.round((this.dustMod !== undefined ? this.dustMod : 1) * 100);
-        const solarLabel = this.solarFailure
-            ? (oxyBlink ? '☀ ████ AWARIA PANELI ████' : `☀ PANELE OFF [${Math.ceil(this.solarFailTimer)}s]`)
-            : inDustHUD ? (oxyBlink ? `💨 PYŁ — PANELE ${dustPct}%` : '💨 PYŁ METEORYTOWY')
-            : (inDark ? '⚡ AWARYJNE' : '☀️ SŁONECZNE');
-        this.powerTxt.setText(`${solarLabel}: ${Math.ceil(this.power)}%`);
+        const powerWarn = this.solarFailure
+            ? (oxyBlink ? ' ⚠ AWARIA PANELI!' : ` PANELE OFF [${Math.ceil(this.solarFailTimer)}s]`)
+            : inDustHUD ? ` 💨PYŁ ${Math.round((this.dustMod||1)*100)}%` : '';
+        this.powerTxt.setText(`ZASILANIE: ${Math.ceil(this.power)}%${powerWarn}`);
         this.powerTxt.setColor(this.solarFailure ? (oxyBlink ? '#ff4400' : '#ffaa00') : inDustHUD ? '#ccaa88' : '#ffffff');
-        const lightsLabel  = this.lightsOn ? '💡ON [×2 dr]' : '💡OFF [F=wł]';
-        const batLabel     = `🔋${this.batteriesCollected} [B=użyj]`;
-        const repairLabel  = `🔧${this.repairKitsCollected} [R=napraw]`;
-        const matsLabel    = `⚙${this.scrapCollected} 💎${this.glassCollected} 🧩${this.plasticCollected}`;
         const driveLabel   = this.driveFailure
             ? (oxyBlink ? `⚙ AWARIA NAPĘDU [${Math.ceil(this.driveFailTimer)}s]` : '⚙ ████ NAPĘD ████')
             : null;
-        const fuelLabel = `⛽${Math.ceil(this.fuel)}%`;
         this.resTxt.setText(driveLabel ||
-            (this.turboActive
-                ? `🔥 TURBO [${fuelLabel} -O₂]  ${batLabel}  ${repairLabel}  ${lightsLabel}  ${matsLabel}`
-                : `${fuelLabel} [SHIFT=turbo]  ${batLabel}  ${repairLabel}  ${lightsLabel}  ${matsLabel}`));
+            (this.turboActive ? `TURBO  PALIWO: ${Math.ceil(this.fuel)}%` : `PALIWO: ${Math.ceil(this.fuel)}%`));
         this.resTxt.setColor(this.driveFailure ? (oxyBlink ? '#ffcc00' : '#ff8800') : '#ffee44');
+        this.resourcesTxt.setText(
+            `🔋${this.batteriesCollected}  🔧${this.repairKitsCollected}  ⚙${this.scrapCollected}  💎${this.glassCollected}  🧩${this.plasticCollected}`);
         let oxyWarn = '';
         if (this.o2Failure)      oxyWarn = oxyBlink ? ' ⚠ AWARIA!' : ` [${Math.ceil(this.o2FailTimer)}s]`;
         else if (this.power < 10) oxyWarn = oxyBlink ? ' ◀ NISKIE ZASILANIE!' : '';
